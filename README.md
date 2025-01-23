@@ -55,8 +55,9 @@ Follow these steps to set up the application on your local machine:
 ### Setup
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/pdf-lda-topic-modeling.git
-   cd pdf-lda-topic-modeling
+   git clone https://github.com/kpeddakotla/LDATopicModeling.git
+   cd LDATopicModeling
+   cd lda
    ```
 2. Set up a virtual environment:
    ```bash
@@ -95,7 +96,7 @@ Follow these steps to set up the application on your local machine:
 - Parameters:
   - Topics: 5
   - Words per Topic: 10
-  - Stopwords: "algorithm, dataset, system"
+  - Stopwords: "et, al, bibliography"
 
 ### Output
 - **Topic List**:
