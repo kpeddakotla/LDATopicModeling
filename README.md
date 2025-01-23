@@ -1,4 +1,3 @@
-```markdown
 # 📄 PDF LDA Topic Modeling Tool
 
 The **PDF LDA Topic Modeling Tool** is a Python-based web application designed to analyze collections of academic papers (in PDF format) and extract meaningful topics using **Latent Dirichlet Allocation (LDA)**. This tool provides insights into the underlying themes within documents and visualizes trends across topics. 🚀
@@ -149,5 +148,5 @@ If you have any questions or need help, feel free to reach out:
 - **Name**: Kushal Peddakotla
 - **Email**: [kpeddakotla@gmail.com](mailto:kpeddakotla@gmail.com)
 - **GitHub**: [kpeddakotla](https://github.com/kpeddakotla)
-```
+
 
