@@ -15,19 +15,15 @@ The **PDF LDA Topic Modeling Tool** is a Python-based web application that allow
   - Uses default English stopwords.
   - Allows users to specify additional stopwords.
 - **Bibliography Skipping**: Option to skip bibliography sections in PDFs during analysis.
-- **Topic Visualization**:
-  - Generates a chart visualizing topics and trends over time.
 - **LDA Model with Scikit-Learn**: Implements LDA to identify topics and extract relevant terms.
 
 ### Not Working
+- **Topic Visualization**:
+  - Currently does not correctly generate a chart visualizing topics and trends over time.
 - **Year-Based Trend Visualization**:
-  - Currently does not correctly correlate topics with years from the documents.
+  - Currently does not correctly correlate topics with decades from the documents.
 - **Error Handling for Incorrect Inputs**:
   - Insufficient validation for improperly formatted ZIP files (e.g., missing PDFs).
-- **Dynamic Stopword Updates**:
-  - Stopwords sent from the frontend are not always processed correctly.
-- **PDF Content Parsing**:
-  - Limited handling of PDFs with unusual formatting or embedded fonts.
 
 ### Planned Features
 - **Improved Year Extraction**:
@@ -56,7 +52,7 @@ Follow these steps to set up the application on your local machine:
 - Node.js and npm (for the frontend)
 - pip (Python package manager)
 
-### Backend Setup
+### Setup
 1. Clone the repository:
    ```bash
    git clone https://github.com/your-username/pdf-lda-topic-modeling.git
@@ -69,23 +65,9 @@ Follow these steps to set up the application on your local machine:
    ```
 3. Install dependencies:
    ```bash
-   pip install -r requirements.txt
-   ```
-4. Run the backend server:
-   ```bash
-   python app.py
-   ```
-
-### Frontend Setup
-1. Navigate to the `frontend` directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
    npm install
    ```
-3. Start the frontend server:
+4. Run the  server:
    ```bash
    npm start
    ```
@@ -94,16 +76,15 @@ Follow these steps to set up the application on your local machine:
 
 ## Usage
 
-1. Launch the backend server (`app.py`) and ensure it is running on `http://localhost:5000`.
-2. Start the frontend server, which will run on `http://localhost:3000` by default.
-3. Navigate to `http://localhost:3000` in your browser.
-4. Upload a `.zip` file containing academic PDFs.
-5. Specify the desired parameters:
+1. Launch the server using npm start, which will run on `http://localhost:3000` by default.
+2. Navigate to `http://localhost:3000` in your browser.
+3. Upload a `.zip` file containing academic PDFs.
+4. Specify the desired parameters:
    - Number of topics
    - Number of words per topic
    - Additional stopwords (optional)
    - Whether to skip bibliography sections
-6. Click "Analyze" to run the topic modeling process and view the results.
+5. Click "Analyze" to run the topic modeling process and view the results.
 
 ---
 
@@ -128,18 +109,11 @@ Follow these steps to set up the application on your local machine:
 
 ```
 pdf-lda-topic-modeling/
-├── backend/
-│   ├── app.py               # Flask backend application
-│   ├── lda_utils.py         # Utility functions for LDA modeling
-│   ├── pdf_parser.py        # PDF parsing functions
-│   ├── requirements.txt     # Python dependencies
-│   └── templates/           # Backend HTML templates (if any)
-├── frontend/
+├── lda/
 │   ├── public/              # Static files
 │   ├── src/                 # React source files
 │   │   ├── App.js           # Main React component
-│   │   ├── components/      # React components
-│   │   └── utils/           # Frontend utility functions
+│   │   ├── app.py           # Main Python component
 │   └── package.json         # Frontend dependencies
 └── README.md                # Project documentation
 ```
@@ -176,7 +150,5 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 
 If you have any questions or need help, feel free to contact the project maintainer:
 - **Name**: Kushal Peddakotla
-- **Email**: [your-email@example.com]
-- **GitHub**: [your-username](https://github.com/kpeddakotla)
-```
-
+- **Email**: [kpeddakotla@gmail.com]
+- **GitHub**: [kpeddakotla](https://github.com/kpeddakotla)
