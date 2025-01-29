@@ -115,50 +115,43 @@ BibliographySettings.propTypes = {
 };
 
 // Results Component
-const Results = ({ results, chartBase64, selectedTopic, setSelectedTopic, decadeChartBase64 }) => (
+const Results = ({ results, topicCharts, selectedTopic, setSelectedTopic }) => (
   <div style={styles.resultsContainer}>
-    <h3>📊 Analysis Results:</h3>
-    {Array.isArray(results) && (
-      <div>
-        <label>
-          Select a Word:
-          <select
-            value={selectedTopic}
-            onChange={(e) => setSelectedTopic(e.target.value)}
-            style={styles.dropdown}
-          >
-            <option value="">-- Select --</option>
-            {results.map((result, index) => (
-              <option key={index} value={result.Word}>
-                {result.Word}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    )}
-    {selectedTopic && (
-      <div>
-        <h4>Chart for: {selectedTopic}</h4>
-        <img src={`data:image/png;base64,${chartBase64}`} alt={`Chart for ${selectedTopic}`} />
-      </div>
-    )}
-    {decadeChartBase64 && (
-      <div>
-        <h4>📅 Decade Analysis Chart</h4>
-        <img src={`data:image/png;base64,${decadeChartBase64}`} alt="Decade Analysis Chart" />
+    <h3>📊 Topic Distributions:</h3>
+    {results && results.topics && results.topics.length > 0 && (
+      <div style={styles.chartGrid}>
+        {Object.entries(topicCharts).map(([topicName, chartData]) => (
+          <div key={topicName} style={styles.chartCard}>
+            <h4 style={styles.chartTitle}>{topicName}</h4>
+            <img 
+              src={`data:image/png;base64,${chartData}`} 
+              alt={`${topicName} Distribution`}
+              style={styles.chartImage}
+            />
+            <div style={styles.topicWords}>
+              {results.topics.find(t => t.Topic === topicName)?.Words.split(', ')
+                .map((word, idx) => (
+                  <span key={idx} style={styles.wordTag}>
+                    {word}
+                  </span>
+                ))}
+            </div>
+          </div>
+        ))}
       </div>
     )}
   </div>
 );
 
+
 Results.propTypes = {
-  results: PropTypes.array,
+  results: PropTypes.array.isRequired,
   chartBase64: PropTypes.string,
   selectedTopic: PropTypes.string,
   setSelectedTopic: PropTypes.func.isRequired,
   decadeChartBase64: PropTypes.string,
 };
+
 
 // Main App Component
 const App = () => {
@@ -166,8 +159,8 @@ const App = () => {
   const [numWords, setNumWords] = useState(10); // Track number of words per topic
   const [file, setFile] = useState(null); // Store the selected file
   const [results, setResults] = useState(null); // Store analysis results
-  const [chartBase64, setChartBase64] = useState(null); // Store chart base64 for display
-  const [decadeChartBase64, setDecadeChartBase64] = useState(null); // Store decade analysis chart base64 for display
+  const [chartBase64, setChartBase64] = useState({});
+  const [decadeChartBase64, setDecadeChartBase64] = useState({});
   const [stopwords, setStopwords] = useState(""); // Define the stopwords state
   const [includeBibliography, setIncludeBibliography] = useState(false); // Toggle bibliography inclusion
   const [includeDecadeAnalysis, setIncludeDecadeAnalysis] = useState(false); // Toggle decade analysis inclusion
@@ -187,7 +180,7 @@ const App = () => {
       setFile(acceptedFiles[0]); // Set the file when dropped
     },
   });
-
+  
   const handleAnalyze = async () => {
     if (!file) {
       alert("Please upload a ZIP file.");
@@ -233,11 +226,11 @@ const App = () => {
   
       console.log("Received stopwords from backend:", data.additional_stopwords);
   
-      if (data.chart) {
-        setChartBase64(data.chart);
+      if (data.topic_charts) {
+        setChartBase64(data.topic_charts); // Store ALL topic charts
       }
-      if (data.decadeChart) {  // Check if a decade chart is returned
-        setDecadeChartBase64(data.decadeChart);
+      if (data.decade_chart_base64) {
+        setDecadeChartBase64(data.decade_chart_base64);
       }
     } catch (error) {
       console.error("Error during analysis:", error);
@@ -271,57 +264,68 @@ const App = () => {
       </button>
       <div style={styles.resultsContainer}>
       <h3>📊 Analysis Results:</h3>
-        {loading ? (
-          <p>Loading analysis...</p>
-        ) : results && results.topics && results.topics.length > 0 ? (
-          <>
-            <div>
-              <h4>Topics:</h4>
-              {topics && topics.length > 0 ? (
-                <div>
-                  <label htmlFor="topicDropdown">Select a Topic:  </label>
-                  <select
-                    id="topicDropdown"
-                    value={selectedTopic ? selectedTopic.Topic : ""}
-                    onChange={handleTopicSelect}
-                  >
-                    <option value="">-- Select a Topic --</option>
-                    {topics.map((topic, index) => (
-                      <option key={index} value={topic.Topic}>
-                        {topic.Topic}
-                      </option>
-                    ))}
-                  </select>
+      {loading ? (
+        <p>Loading analysis...</p>
+      ) : results && results.topics && results.topics.length > 0 ? (
+        <>
+          <div>
+            <h4>Topics:</h4>
+            {topics && topics.length > 0 ? (
+              <div>
+                <label htmlFor="topicDropdown">Select a Topic: </label>
+                <select
+                  id="topicDropdown"
+                  value={selectedTopic ? selectedTopic.Topic : ""}
+                  onChange={handleTopicSelect}
+                >
+                  <option value="">-- Select a Topic --</option>
+                  {topics.map((topic, index) => (
+                    <option key={index} value={topic.Topic}>
+                      {topic.Topic}
+                    </option>
+                  ))}
+                </select>
 
-                  {selectedTopic && (
-                    <div>
-                      <h4>{selectedTopic.Topic}</h4>
-                      <p>
-                        <strong>Words:</strong> {selectedTopic.Words || "No words available."}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p>No topics available.</p>
-              )}
-            </div>
-            {chartBase64 && (
-              <div>
-                <h4>Chart:</h4>
-                <img src={`data:image/png;base64,${chartBase64}`} alt="Topic Chart" />
+                {selectedTopic && (
+                  <div>
+                    <h4>{selectedTopic.Topic}</h4>
+                    <p>
+                      <strong>Words:</strong> {selectedTopic.Words || "No words available."}
+                    </p>
+                  </div>
+                )}
+
+                {/* Render Chart for the Selected Topic */}
+                {chartBase64 && selectedTopic && (
+                  <div>
+                    <h4>Topic Distribution Chart:</h4>
+                    <img
+                      src={`data:image/png;base64,${chartBase64[selectedTopic.Topic]}`} // Match topic key
+                      alt={`Chart for ${selectedTopic.Topic}`}
+                    />
+                  </div>
+                )}
+
+                {/* For Decade Chart */}
+                {decadeChartBase64 && (
+                  <div>
+                    <h4>Decade Distribution Chart:</h4>
+                    <img
+                      src={`data:image/png;base64,${decadeChartBase64}`}
+                      alt="Decade Distribution Chart"
+                    />
+                  </div>
+                )}
               </div>
+            ) : (
+              <p>No topics available.</p>
             )}
-            {decadeChartBase64 && (
-              <div>
-                <h4>Decade Analysis Chart:</h4>
-                <img src={`data:image/png;base64,${decadeChartBase64}`} alt="Decade Analysis Chart" />
-              </div>
-            )}
-          </>
-        ) : (
-          <p>Results will appear here after analysis.</p>
-        )}
+          </div>
+        </>
+      ) : (
+        <p>Results will appear here after analysis.</p>
+      )}
+
       </div>
     </div>
   );  

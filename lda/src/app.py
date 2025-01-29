@@ -4,7 +4,6 @@ import shutil
 import tempfile
 import threading
 import queue
-import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
 from sklearn.decomposition import LatentDirichletAllocation as LDA
@@ -17,14 +16,26 @@ from flask_cors import CORS
 from PyPDF2 import PdfReader
 import logging
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+import gc
 
 app = Flask(__name__)
 CORS(app)
 result_queue = queue.Queue()
+matplotlib_logger = logging.getLogger('matplotlib')
+matplotlib_logger.setLevel(logging.WARNING)
+
+# Set up logging for your own application
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+logging.getLogger("PIL").setLevel(logging.INFO)
 
 # Download NLTK stopwords
 nltk.download("stopwords")
@@ -70,27 +81,40 @@ def extract_text_from_pdf(pdf_path):
             text += page.extract_text() or ""
     return text
 
-# Function to generate a bar chart and convert it to base64
-def generate_topic_trend_chart(year_topic_trends, num_topics):
-    topic_charts = {}
+def generate_decade_chart(decade_topic_distribution, lda):
+    plt.ioff()
+    fig = plt.figure(figsize=(8, 4), dpi=100)
+    ax = fig.add_subplot(111)
+    
+    topic_dist_df = pd.DataFrame(decade_topic_distribution).T
+    topic_dist_df.columns = [f"Topic {i+1}" for i in range(lda.n_components)]
+    
+    topic_dist_df.plot(kind="bar", stacked=True, ax=ax, colormap='tab20', width=0.85)
+    ax.set_ylabel("Average Topic Proportion", fontsize=8)
+    ax.set_title("Topic Distribution Over Decades", fontsize=10, pad=10)
+    ax.legend(title='Topics', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=6)
+    
+    plt.tight_layout(pad=2)
+    
+    img_buffer = BytesIO()
+    fig.savefig(img_buffer, format='png', bbox_inches='tight')
+    img_buffer.seek(0)
+    decade_chart = base64.b64encode(img_buffer.read()).decode('utf-8')
+    plt.close(fig)
+    
+    return decade_chart
 
-    for topic_idx in range(num_topics):
-        plt.figure(figsize=(8, 4))
-        topic_values = [year_topic_trends[year][topic_idx] for year in sorted(year_topic_trends)]
-        plt.plot(sorted(year_topic_trends), topic_values, label=f"Topic {topic_idx + 1}", color="steelblue")
-        plt.xlabel("Year")
-        plt.ylabel("Topic Distribution")
-        plt.title(f"Yearly Trends for Topic {topic_idx + 1}")
-        plt.legend(loc="upper left")
-        plt.tight_layout()
+def generate_chart(data, title):
+    fig, ax = plt.subplots()
+    ax.plot(data['x'], data['y'])
+    ax.set_title(title)
+    # Save plot to BytesIO and convert to base64
+    img_stream = BytesIO()
+    plt.savefig(img_stream, format='png')
+    plt.close(fig)
+    img_stream.seek(0)
+    return base64.b64encode(img_stream.read()).decode('utf-8')
 
-        img_buffer = BytesIO()
-        plt.savefig(img_buffer, format="png")
-        img_buffer.seek(0)
-        topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(img_buffer.read()).decode("utf-8")
-        plt.close()
-
-    return topic_charts
 
 def group_by_decades(years, doc_topic_matrix):
     bins = np.arange(1950, 2030, 10)
@@ -113,19 +137,15 @@ def analyze_task(file, form_data, result_queue):
         num_topics = int(form_data.get("numTopics", 5))
         num_words = int(form_data.get("numWords", 10))
         skip_bibliography = form_data.get("skip_bibliography", "false").lower() == "true"
-        
-        peak = form_data.get("stopwords", "")
-        additional_stopwords = peak.split(",") if peak else []
+        additional_stopwords = form_data.get("stopwords", "").split(",")
         additional_stopwords = [word.strip() for word in additional_stopwords]
 
         default_stopwords = stopwords.words("english")
-        custom_stopwords = additional_stopwords if additional_stopwords else []
-        all_stopwords = list(set(default_stopwords + custom_stopwords))
+        all_stopwords = list(set(default_stopwords + additional_stopwords))
 
-        # Extracting the text from the PDF file
+        # Extract and process PDF files
         zip_path = tempfile.mktemp()
         file.save(zip_path)
-
         extracted_path = tempfile.mkdtemp()
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(extracted_path)
@@ -139,34 +159,72 @@ def analyze_task(file, form_data, result_queue):
                     cleaned_text = clean_pdf_text(text) if skip_bibliography else text
                     pdf_texts.append(cleaned_text)
 
+        if not pdf_texts:
+            result_queue.put({"error": "No valid text extracted from PDFs."})
+            return
+
+        # Create document-term matrix
         vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words=all_stopwords)
         doc_term_matrix = vectorizer.fit_transform(pdf_texts)
+
+        # Train LDA model
         lda = LDA(n_components=num_topics, random_state=42)
         lda.fit(doc_term_matrix)
 
-        words = vectorizer.get_feature_names_out()
-        topic_word_frequencies = [
-            ([words[i] for i in topic.argsort()[-num_words:][::-1]], 
-             topic[topic.argsort()[-num_words:][::-1]] )
-            for topic in lda.components_
-        ]
+        # Get feature names and components
+        feature_names = vectorizer.get_feature_names_out()
+        components = lda.components_
 
-        topics = [{"Topic": f"Topic {i + 1}", "Words": ", ".join(words)} for i, (words, _) in enumerate(topic_word_frequencies)]
+        # Generate topic-word distribution charts
+        topic_charts = {}
+        for topic_idx, topic_weights in enumerate(components):
+            plt.figure(figsize=(10, 6))
+            
+            # Get top words and their weights
+            top_indices = topic_weights.argsort()[-num_words:][::-1]
+            top_words = [feature_names[i] for i in top_indices]
+            weights = topic_weights[top_indices]
+            
+            # Create horizontal bar chart
+            y_pos = np.arange(len(top_words))
+            plt.barh(y_pos, weights, align='center', color='steelblue')
+            plt.yticks(y_pos, labels=top_words)
+            plt.gca().invert_yaxis()  # Highest weight at top
+            plt.xlabel('Word Importance Score')
+            plt.title(f'Topic {topic_idx + 1} - Key Terms Distribution')
+            plt.tight_layout()
 
-        # Creating the topic trend charts (asynchronous task)
-        year_topic_trends = {}  # Sample data for year-topic trends (replace with actual data)
-        topic_charts = generate_topic_trend_chart(year_topic_trends, num_topics)
+            # Save to buffer
+            img_buffer = BytesIO()
+            plt.savefig(img_buffer, format='png', bbox_inches='tight')
+            img_buffer.seek(0)
+            topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(img_buffer.read()).decode('utf-8')
+            plt.close()
 
-        # Send result back to the main thread via the queue
+        # Prepare topic metadata
+        topics = []
+        for topic_idx in range(num_topics):
+            top_word_indices = components[topic_idx].argsort()[-num_words:][::-1]
+            top_words = [feature_names[i] for i in top_word_indices]
+            topics.append({
+                "Topic": f"Topic {topic_idx + 1}",
+                "Words": ", ".join(top_words),
+                "WordScores": components[topic_idx][top_word_indices].tolist()
+            })
+
         result_queue.put({
             "topics": topics,
             "topic_charts": topic_charts,
+            "vectorizer": vectorizer,
+            "lda_model": lda,
             "additional_stopwords": additional_stopwords
         })
 
     except Exception as e:
+        logger.error(f"Error during analysis: {e}")
         result_queue.put({"error": str(e)})
-
+        
+        
 @app.route('/analyze', methods=["POST"])
 def analyze():
     file = request.files.get("file")
@@ -174,25 +232,88 @@ def analyze():
         return jsonify({"error": "No file uploaded"}), 400
 
     try:
-        # Run the analysis in a separate thread to avoid blocking the main thread
         form_data = request.form
-        analysis_thread = threading.Thread(target=analyze_task, args=(file, form_data, result_queue))
+        result_queue = queue.Queue()
+        error_queue = queue.Queue()
+        
+        analysis_thread = threading.Thread(
+            target=analyze_task,
+            args=(file, form_data, result_queue, error_queue)
+        )
         analysis_thread.start()
-
-        # Wait for the result from the worker thread
         analysis_thread.join()
 
-        # Get the result from the queue
+        if not error_queue.empty():
+            return jsonify({"error": error_queue.get()}), 500
+
         result = result_queue.get()
-
         if "error" in result:
-            return jsonify({"error": result["error"]}), 500
+            return jsonify(result), 500
 
-        return jsonify(result)
+        # Generate topic distribution charts
+        vectorizer = result['vectorizer']
+        lda_model = result['lda_model']
+        num_words = int(form_data.get("numWords", 10))
+        
+        topic_charts = generate_topic_distribution_charts(
+            lda_model=lda_model,
+            feature_names=vectorizer.get_feature_names_out(),
+            num_words=num_words
+        )
+
+        return jsonify({
+            'topics': result['topics'],
+            'topic_charts': topic_charts
+        })
 
     except Exception as e:
-        return jsonify({"error": "Internal Server Error", "details": str(e)}), 500
+        logger.error(f"Analysis error: {str(e)}")
+        return jsonify({"error": "Analysis failed", "details": str(e)}), 500
 
+def generate_topic_distribution_charts(lda_model, feature_names, num_words=10):
+    topic_charts = {}
+    plt.ioff()  # Disable interactive plotting
+    
+    for topic_idx, topic_weights in enumerate(lda_model.components_):
+        # Get top words and their weights
+        top_indices = topic_weights.argsort()[-num_words:][::-1]
+        top_words = [feature_names[i] for i in top_indices]
+        weights = topic_weights[top_indices]
+        
+        # Create figure with constrained size
+        fig, ax = plt.figure(num=f"topic_{topic_idx}", figsize=(10, 6), dpi=100)
+        fig.clf()  # Clear any existing content
+        
+        # Create horizontal bar chart
+        y_pos = np.arange(len(top_words))
+        bars = ax.barh(y_pos, weights, align='center', color='steelblue')
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(top_words)
+        ax.invert_yaxis()  # Highest weight at top
+        ax.set_xlabel('Word Importance Score')
+        ax.set_title(f'Topic {topic_idx+1} - Key Terms Distribution')
+        
+        # Add value labels
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width * 1.02, bar.get_y() + bar.get_height()/2,
+                    f'{width:.2f}',
+                    va='center', ha='left', fontsize=8)
+        
+        plt.tight_layout()
+        
+        # Save to buffer
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=120)
+        plt.close(fig)
+        buf.seek(0)
+        
+        del fig
+        gc.collect()
+        topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(buf.read()).decode('utf-8')
+    
+    return topic_charts        
+        
 @app.route("/summary", methods=["POST"])
 def summary():
     try:
@@ -203,92 +324,6 @@ def summary():
     except Exception as e:
         logger.error("Error in summary endpoint: %s", str(e))
         return jsonify({"error": str(e)}), 500
-
-@app.route("/yearly_trends", methods=["POST"])
-def yearly_trends():
-    file = request.files.get("file")
-    if not file:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    runtime_folder = tempfile.mkdtemp()
-
-    try:
-        num_topics = int(request.form.get("numTopics", 0))
-        skip_bibliography = request.form.get("skip_bibliography", "false").lower() == "true"
-        additional_stopwords = request.form.get("stopwords", "")
-
-        if num_topics <= 0:
-            return jsonify({"error": "Invalid number of topics"}), 400
-
-        default_stopwords = stopwords.words("english")
-        custom_stopwords = additional_stopwords.split(",") if additional_stopwords else []
-        all_stopwords = list(set(default_stopwords + custom_stopwords))
-
-        zip_path = os.path.join(runtime_folder, file.filename)
-        file.save(zip_path)
-
-        extracted_path = os.path.join(runtime_folder, "extracted")
-        os.makedirs(extracted_path, exist_ok=True)
-
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(extracted_path)
-
-        pdf_texts = []
-        years = []
-        for root, _, files in os.walk(extracted_path):
-            for file_name in files:
-                if file_name.endswith(".pdf"):
-                    pdf_path = os.path.join(root, file_name)
-                    text = extract_text_from_pdf(pdf_path)
-                    cleaned_text = clean_pdf_text(text) if skip_bibliography else text
-                    pdf_texts.append(cleaned_text)
-                    years.append(extract_year_from_title(file_name))
-
-        if not pdf_texts:
-            return jsonify({"error": "No valid PDF text found"}), 400
-
-        vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words=all_stopwords)
-        doc_term_matrix = vectorizer.fit_transform(pdf_texts)
-        lda = LDA(n_components=num_topics, random_state=42)
-        topic_distributions = lda.fit_transform(doc_term_matrix)
-
-        # Create a dictionary to track yearly topic trends
-        year_topic_trends = {year: [0] * num_topics for year in set(years)}
-        for i, year in enumerate(years):
-            if year is not None:
-                year_topic_trends[year] = [
-                    year_topic_trends[year][j] + topic_distributions[i][j]
-                    for j in range(num_topics)
-                ]
-
-        # Normalize topic trends per year
-        for year in year_topic_trends:
-            total = sum(year_topic_trends[year])
-            if total > 0:
-                year_topic_trends[year] = [val / total for val in year_topic_trends[year]]
-
-        # Generate individual charts for each topic
-        topic_charts = {}
-        for topic_idx in range(num_topics):
-            plt.figure(figsize=(8, 4))
-            topic_values = [year_topic_trends[year][topic_idx] for year in sorted(year_topic_trends)]
-            plt.plot(sorted(year_topic_trends), topic_values, label=f"Topipppc {topic_idx + 1}", color="steelblue")
-            plt.xlabel("Year")
-            plt.ylabel("Topic Distribution")
-            plt.title(f"Yearly Trends for Toppic {topic_idx + 1}")
-            plt.legend(loc="upper left")
-            plt.tight_layout()
-
-            img_buffer = BytesIO()
-            plt.savefig(img_buffer, format="png")
-            img_buffer.seek(0)
-            topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(img_buffer.read()).decode("utf-8")
-            plt.close()
-
-        return jsonify({"topic_charts": topic_charts})
-    finally:
-        shutil.rmtree(runtime_folder)
-
 
 if __name__ == "__main__":
     app.run(debug=False, port=5000)

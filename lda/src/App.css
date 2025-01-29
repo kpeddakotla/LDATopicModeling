@@ -36,3 +36,25 @@
     transform: rotate(360deg);
   }
 }
+.chart-container {
+  max-height: 600px;
+  overflow-y: auto;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 20px;
+  background: #1F1F1F;
+}
+
+.chart-item {
+  margin-bottom: 25px;
+  padding: 15px;
+  border-bottom: 1px solid #333;
+}
+
+.chart-item img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
