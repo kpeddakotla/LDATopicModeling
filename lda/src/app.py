@@ -21,6 +21,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 import gc
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -39,6 +40,7 @@ logging.getLogger("PIL").setLevel(logging.INFO)
 
 # Download NLTK stopwords
 nltk.download("stopwords")
+logging.getLogger("PyPDF2").setLevel(logging.ERROR)
 
 # Function to extract the year from the file name
 def extract_year_from_title(file_name):
@@ -73,12 +75,26 @@ def clean_pdf_text(text):
         return text
 
 # Function to extract text from a PDF
+
 def extract_text_from_pdf(pdf_path):
     text = ""
-    with open(pdf_path, 'rb') as file:
-        reader = PdfReader(file)
-        for page in reader.pages:
-            text += page.extract_text() or ""
+    try:
+        with open(pdf_path, 'rb') as file:
+            reader = PdfReader(file)
+            
+            # Check if encrypted
+            if reader.is_encrypted:
+                try:
+                    reader.decrypt('')
+                except Exception as e:
+                    logger.warning(f"Skipping encrypted file {pdf_path}: {str(e)}")
+                    return ""
+            
+            for page in reader.pages:
+                text += page.extract_text() or ""
+    except Exception as e:
+        logger.error(f"Error processing {pdf_path}: {str(e)}")
+        return ""
     return text
 
 def generate_decade_chart(decade_topic_distribution, lda):
@@ -97,7 +113,7 @@ def generate_decade_chart(decade_topic_distribution, lda):
     plt.tight_layout(pad=2)
     
     img_buffer = BytesIO()
-    fig.savefig(img_buffer, format='png', bbox_inches='tight')
+    plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
     img_buffer.seek(0)
     decade_chart = base64.b64encode(img_buffer.read()).decode('utf-8')
     plt.close(fig)
@@ -132,7 +148,9 @@ def group_by_decades(years, doc_topic_matrix):
 
     return decade_topic_distribution
 
-def analyze_task(file, form_data, result_queue):
+def analyze_task(file, form_data):
+    zip_path = None
+    extracted_path = None
     try:
         num_topics = int(form_data.get("numTopics", 5))
         num_words = int(form_data.get("numWords", 10))
@@ -160,8 +178,7 @@ def analyze_task(file, form_data, result_queue):
                     pdf_texts.append(cleaned_text)
 
         if not pdf_texts:
-            result_queue.put({"error": "No valid text extracted from PDFs."})
-            return
+            return {"error": "No valid text extracted from PDFs."}
 
         # Create document-term matrix
         vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words=all_stopwords)
@@ -174,57 +191,85 @@ def analyze_task(file, form_data, result_queue):
         # Get feature names and components
         feature_names = vectorizer.get_feature_names_out()
         components = lda.components_
-
-        # Generate topic-word distribution charts
+        
         topic_charts = {}
         for topic_idx, topic_weights in enumerate(components):
             plt.figure(figsize=(10, 6))
             
-            # Get top words and their weights
+            # Get top words and raw weights
             top_indices = topic_weights.argsort()[-num_words:][::-1]
             top_words = [feature_names[i] for i in top_indices]
-            weights = topic_weights[top_indices]
+            raw_weights = topic_weights[top_indices]
             
-            # Create horizontal bar chart
-            y_pos = np.arange(len(top_words))
-            plt.barh(y_pos, weights, align='center', color='steelblue')
-            plt.yticks(y_pos, labels=top_words)
-            plt.gca().invert_yaxis()  # Highest weight at top
-            plt.xlabel('Word Importance Score')
-            plt.title(f'Topic {topic_idx + 1} - Key Terms Distribution')
+            # Convert to percentages of total topic weight
+            total_weight = raw_weights.sum()
+            percentages = (raw_weights / total_weight * 100).round(2)
+            
+            # Create horizontal bar chart with percentages
+            plt.barh(top_words, percentages, color='steelblue')
+            plt.gca().invert_yaxis()
+            plt.xlabel('Percentage Importance (%)')
+            plt.title(f'Topic {topic_idx + 1} - Word Distribution')
+            
+            # Add value labels
+            for i, (word, pct) in enumerate(zip(top_words, percentages)):
+                plt.text(pct + 0.5, i, f'{pct:.1f}%', va='center', fontsize=8)
+            
             plt.tight_layout()
-
+            
             # Save to buffer
             img_buffer = BytesIO()
-            plt.savefig(img_buffer, format='png', bbox_inches='tight')
+            plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=120)
             img_buffer.seek(0)
             topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(img_buffer.read()).decode('utf-8')
             plt.close()
+        doc_topic_matrix = lda.transform(doc_term_matrix)
 
-        # Prepare topic metadata
+        # Prepare topic metadata with both values
         topics = []
         for topic_idx in range(num_topics):
+            topic_scores = doc_topic_matrix[:, topic_idx]
+            top_doc_indices = np.argsort(topic_scores)[::-1][:5]
             top_word_indices = components[topic_idx].argsort()[-num_words:][::-1]
             top_words = [feature_names[i] for i in top_word_indices]
+            raw_weights = components[topic_idx][top_word_indices]
+            total_weight = raw_weights.sum()
+            
             topics.append({
                 "Topic": f"Topic {topic_idx + 1}",
                 "Words": ", ".join(top_words),
-                "WordScores": components[topic_idx][top_word_indices].tolist()
+                "WordScores": {
+                    "raw": raw_weights.tolist(),
+                    "percentages": (raw_weights / total_weight * 100).round(2).tolist()
+                }
             })
 
-        result_queue.put({
+        return {
             "topics": topics,
             "topic_charts": topic_charts,
             "vectorizer": vectorizer,
             "lda_model": lda,
             "additional_stopwords": additional_stopwords
-        })
+        }
 
     except Exception as e:
         logger.error(f"Error during analysis: {e}")
-        result_queue.put({"error": str(e)})
-        
-        
+        return {"error": str(e)}
+    finally:    
+        plt.close('all')
+        gc.collect() 
+        try:
+            if zip_path and os.path.exists(zip_path):
+                os.remove(zip_path)
+        except Exception as e:
+            logger.error(f"Error removing zip file: {str(e)}")
+            
+        try:
+            if extracted_path and os.path.exists(extracted_path):
+                shutil.rmtree(extracted_path)
+        except Exception as e:
+            logger.error(f"Error removing extracted files: {str(e)}")
+
 @app.route('/analyze', methods=["POST"])
 def analyze():
     file = request.files.get("file")
@@ -232,86 +277,70 @@ def analyze():
         return jsonify({"error": "No file uploaded"}), 400
 
     try:
-        form_data = request.form
-        result_queue = queue.Queue()
-        error_queue = queue.Queue()
+        form_data = request.form.to_dict()
+        result = analyze_task(file, form_data)
         
-        analysis_thread = threading.Thread(
-            target=analyze_task,
-            args=(file, form_data, result_queue, error_queue)
-        )
-        analysis_thread.start()
-        analysis_thread.join()
-
-        if not error_queue.empty():
-            return jsonify({"error": error_queue.get()}), 500
-
-        result = result_queue.get()
         if "error" in result:
             return jsonify(result), 500
 
-        # Generate topic distribution charts
-        vectorizer = result['vectorizer']
-        lda_model = result['lda_model']
-        num_words = int(form_data.get("numWords", 10))
-        
-        topic_charts = generate_topic_distribution_charts(
-            lda_model=lda_model,
-            feature_names=vectorizer.get_feature_names_out(),
-            num_words=num_words
-        )
-
         return jsonify({
             'topics': result['topics'],
-            'topic_charts': topic_charts
+            'topic_charts': result['topic_charts'],
+            'cache_id': int(time.time())
         })
-
+        
     except Exception as e:
-        logger.error(f"Analysis error: {str(e)}")
+        logger.error(f"Analysis failed: {str(e)}")
         return jsonify({"error": "Analysis failed", "details": str(e)}), 500
-
+    finally:
+        plt.close('all')
+        gc.collect()
+        
 def generate_topic_distribution_charts(lda_model, feature_names, num_words=10):
     topic_charts = {}
-    plt.ioff()  # Disable interactive plotting
+    try:
+        plt.ioff()  # Disable interactive plotting
     
-    for topic_idx, topic_weights in enumerate(lda_model.components_):
-        # Get top words and their weights
-        top_indices = topic_weights.argsort()[-num_words:][::-1]
-        top_words = [feature_names[i] for i in top_indices]
-        weights = topic_weights[top_indices]
-        
-        # Create figure with constrained size
-        fig, ax = plt.figure(num=f"topic_{topic_idx}", figsize=(10, 6), dpi=100)
-        fig.clf()  # Clear any existing content
-        
-        # Create horizontal bar chart
-        y_pos = np.arange(len(top_words))
-        bars = ax.barh(y_pos, weights, align='center', color='steelblue')
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels(top_words)
-        ax.invert_yaxis()  # Highest weight at top
-        ax.set_xlabel('Word Importance Score')
-        ax.set_title(f'Topic {topic_idx+1} - Key Terms Distribution')
-        
-        # Add value labels
-        for bar in bars:
-            width = bar.get_width()
-            ax.text(width * 1.02, bar.get_y() + bar.get_height()/2,
-                    f'{width:.2f}',
-                    va='center', ha='left', fontsize=8)
-        
-        plt.tight_layout()
-        
-        # Save to buffer
-        buf = BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight', dpi=120)
-        plt.close(fig)
-        buf.seek(0)
-        
-        del fig
+        for topic_idx, topic_weights in enumerate(lda_model.components_):
+            # Get top words and their weights
+            top_indices = topic_weights.argsort()[-num_words:][::-1]
+            top_words = [feature_names[i] for i in top_indices]
+            weights = topic_weights[top_indices]
+            
+            # Create figure with constrained size
+            fig, ax = plt.figure(num=f"topic_{topic_idx}", figsize=(10, 6), dpi=100)
+            fig.clf()  # Clear any existing content
+            
+            # Create horizontal bar chart
+            y_pos = np.arange(len(top_words))
+            bars = ax.barh(y_pos, weights, align='center', color='steelblue')
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(top_words)
+            ax.invert_yaxis()  # Highest weight at top
+            ax.set_xlabel('Word Importance Score')
+            ax.set_title(f'Topic {topic_idx+1} - Key Terms Distribution')
+            
+            # Add value labels
+            for bar in bars:
+                width = bar.get_width()
+                ax.text(width * 1.02, bar.get_y() + bar.get_height()/2,
+                        f'{width:.2f}',
+                        va='center', ha='left', fontsize=8)
+            
+            plt.tight_layout()
+            
+            # Save to buffer
+            buf = BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+            plt.close(fig)
+            buf.seek(0)
+            
+            del fig
+            gc.collect()
+            topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(buf.read()).decode('utf-8')
+    finally:
+        plt.close('all')  # Ensure all figures are closed
         gc.collect()
-        topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(buf.read()).decode('utf-8')
-    
     return topic_charts        
         
 @app.route("/summary", methods=["POST"])
