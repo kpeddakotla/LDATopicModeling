@@ -163,10 +163,9 @@ def analyze_task(file, form_data):
         all_stopwords = list(set(default_stopwords + additional_stopwords))
 
         # Process ZIP file
-        zip_path = tempfile.mktemp(suffix=".zip")
+        zip_path = tempfile.mktemp()
         file.save(zip_path)
         extracted_path = tempfile.mkdtemp()
-        
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(extracted_path)
 
@@ -180,10 +179,11 @@ def analyze_task(file, form_data):
             for file_name in files:
                 if file_name.endswith(".pdf"):
                     pdf_path = os.path.join(root, file_name)
+                    logger.debug(f"Processing PDF: {pdf_path}")
+
                     text = extract_text_from_pdf(pdf_path)
-                    
-                    if not text.strip():
-                        logger.warning(f"Skipping empty PDF: {file_name}")
+                    if not text:
+                        logger.warning(f"No text extracted from {pdf_path}")
                         continue
 
                     cleaned_text = clean_pdf_text(text) if skip_bibliography else text
@@ -191,7 +191,6 @@ def analyze_task(file, form_data):
                     titles.append(file_name)
                     years.append(extract_year_from_title(file_name))
                     pdf_count += 1
-
         if not pdf_texts:
             return {"error": "No valid text extracted from PDFs."}
 
@@ -203,83 +202,50 @@ def analyze_task(file, form_data):
         # Train LDA model
         lda = LDA(n_components=num_topics, random_state=42)
         lda.fit(doc_term_matrix)
+        components = lda.components_
         doc_topic_matrix = lda.transform(doc_term_matrix)
 
-        # Calculate advanced metrics
-        def compute_tfidf_across_topics(components):
-            tf = components
-            df = np.sum(tf > 0, axis=0)
-            idf = np.log(tf.shape[0] / (df + 1e-12))
-            return tf * idf
-
-        tfidf_scores = compute_tfidf_across_topics(lda.components_)
-        marginal_word_prob = lda.components_.sum(axis=0) / lda.components_.sum()
-
-        # Generate topic data with enhanced metrics
-        topics = []
+        # Generate topic charts and metadata
         topic_charts = {}
+        topics = []
         
         for topic_idx in range(num_topics):
-            topic_weights = lda.components_[topic_idx]
-            
-            # Calculate advanced metrics
-            lift_scores = topic_weights / (marginal_word_prob + 1e-12)
-            saliency_scores = topic_weights * np.log(lift_scores + 1e-12)
-            
-            # Combined importance score (adjust weights as needed)
-            combined_scores = (
-                0.5 * topic_weights + 
-                0.3 * tfidf_scores[topic_idx] + 
-                0.2 * saliency_scores
-            )
-
-            # Get top words using combined scores
-            top_indices = combined_scores.argsort()[-num_words:][::-1]
+            # Get top words and their weights
+            top_indices = components[topic_idx].argsort()[-num_words:][::-1]
             top_words = [feature_names[i] for i in top_indices]
-            raw_weights = topic_weights[top_indices]
+            raw_weights = components[topic_idx][top_indices]
             
-            # Calculate word entropy
-            word_entropy = []
-            for word_idx in top_indices:
-                p_t_given_w = lda.components_[:, word_idx] / (lda.components_[:, word_idx].sum() + 1e-12)
-                entropy = -np.sum(p_t_given_w * np.log(p_t_given_w + 1e-12))
-                word_entropy.append(entropy)
-
-            # Normalize scores for visualization
+            # Convert to percentages
             total_weight = raw_weights.sum()
             percentages = (raw_weights / total_weight * 100).round(2)
-
-            # Create visualization
+            
+            # Create chart
             plt.figure(figsize=(10, 6))
-            bars = plt.barh(top_words, percentages, color='steelblue')
+            plt.barh(top_words, percentages, color='steelblue')
             plt.gca().invert_yaxis()
-            plt.xlabel('Relative Importance (%)')
+            plt.xlabel('Percentage Importance (%)')
             plt.title(f'Topic {topic_idx + 1} - Word Distribution')
             
-            # Add metric annotations
-            for i, (word, pct, entropy) in enumerate(zip(top_words, percentages, word_entropy)):
-                plt.text(pct + 0.5, i, 
-                        f'{pct:.1f}%\nLift: {lift_scores[top_indices[i]]:.2f}\nEntropy: {entropy:.2f}',
-                        va='center', fontsize=8)
-
-            # Save chart
+            # Add value labels
+            for i, (word, pct) in enumerate(zip(top_words, percentages)):
+                plt.text(pct + 0.5, i, f'{pct:.1f}%', va='center', fontsize=8)
+            
+            plt.tight_layout()
+            
+            # Save to buffer
             img_buffer = BytesIO()
             plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=120)
             img_buffer.seek(0)
             topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(img_buffer.read()).decode('utf-8')
             plt.close()
-
-            # Store topic metadata
+            
+            # Prepare topic metadata
             topics.append({
                 "Topic": f"Topic {topic_idx + 1}",
                 "Words": ", ".join(top_words),
                 "WordScores": {
                     "raw": raw_weights.tolist(),
-                    "percentages": percentages.tolist(),
-                    "lift": lift_scores[top_indices].tolist(),
-                    "saliency": saliency_scores[top_indices].tolist(),
-                    "entropy": word_entropy,
-                    "combined": combined_scores[top_indices].tolist()
+                    "percentages": percentages.tolist()
                 }
             })
 
@@ -292,26 +258,26 @@ def analyze_task(file, form_data):
         )
 
         return {
-            "topics": topics,
-            "topic_charts": topic_charts,
-            "num_pdfs": pdf_count,
-            "num_topics": num_topics,
-            "num_words": num_words,
-            "time_period": time_period,
-            "titles": titles,
-            "years": years,
-            "vectorizer": vectorizer,
-            "lda_model": lda,
-            "doc_topic_matrix": doc_topic_matrix,
-            "additional_stopwords": additional_stopwords
-        }
+        "topics": topics,
+        "topic_charts": topic_charts,
+        "vectorizer": vectorizer,
+        "lda_model": lda,  # Add this
+        "doc_topic_matrix": doc_topic_matrix,  # Add this
+        "additional_stopwords": additional_stopwords,
+        "num_pdfs": pdf_count,
+        "titles": titles,
+        "years": years,
+        "time_period": time_period,
+        "num_topics": num_topics,
+        "num_words": num_words
+    }
 
     except Exception as e:
         logger.error(f"Error during analysis: {e}")
         return {"error": str(e)}
     finally:    
         plt.close('all')
-        gc.collect()
+        gc.collect() 
         try:
             if zip_path and os.path.exists(zip_path):
                 os.remove(zip_path)
@@ -323,7 +289,7 @@ def analyze_task(file, form_data):
                 shutil.rmtree(extracted_path)
         except Exception as e:
             logger.error(f"Error removing extracted files: {str(e)}")
-
+            
 @app.route('/analyze', methods=["POST"])
 def analyze():
     file = request.files.get("file")

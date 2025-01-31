@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import PropTypes from "prop-types";
 import { useDropzone } from "react-dropzone";
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 // File Upload Component
 const FileUpload = ({ getRootProps, getInputProps, file }) => (
@@ -137,6 +139,36 @@ const App = () => {
     const selectedTopicId = event.target.value;
     const topic = topics.find((topic) => topic.Topic === selectedTopicId);
     setSelectedTopic(topic); // Update the selected topic based on user selection
+  };
+
+  const handleExportCharts = async () => {
+    if (!chartBase64 && !decadeChartBase64) {
+      alert('No charts available to export!');
+      return;
+    }
+  
+    const zip = new JSZip();
+    const folder = zip.folder("topic_analysis_charts");
+    
+    // Add topic charts
+    if (chartBase64) {
+      Object.entries(chartBase64).forEach(([topicName, base64], index) => {
+        const content = base64.split(';base64,').pop();
+        folder.file(`${topicName.replace(/ /g, '_')}.png`, content, { base64: true });
+      });
+    }
+  
+    // Add decade chart
+    if (decadeChartBase64) {
+      const decadeContent = decadeChartBase64.split(';base64,').pop();
+      folder.file("decade_analysis.png", decadeContent, { base64: true });
+    }
+  
+    // Generate ZIP file
+    zip.generateAsync({ type: "blob" })
+      .then((content) => {
+        saveAs(content, "topic_analysis_charts.zip");
+      });
   };
 
   const explanationContent = (
@@ -281,17 +313,6 @@ const App = () => {
     window.URL.revokeObjectURL(url);
   };
   
-  const handleExportPNG = () => {
-    if (selectedTopic && chartBase64 && chartBase64[selectedTopic.Topic]) {
-      const link = document.createElement('a');
-      link.href = `data:image/png;base64,${chartBase64[selectedTopic.Topic]}`;
-      link.download = `${selectedTopic.Topic.replace(' ', '_')}_chart.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-  
   return (
     <div style={styles.container}>
       <h1 style={styles.header}>📚 PDF Topic Analysis</h1>
@@ -403,9 +424,9 @@ const App = () => {
           </button>
           <button 
             style={styles.exportButton}
-            onClick={handleExportPNG}
+            onClick={handleExportCharts}
           >
-            🖼️ Export Charts (PNG)
+            🖼️ Export All Charts (ZIP)
           </button>
         </div>
       )}
