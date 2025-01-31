@@ -16,26 +16,18 @@ The **PDF LDA Topic Modeling Tool** is a Python-based web application designed t
   - Allows users to specify additional stopwords.
 - **📜 Bibliography Skipping**: Option to skip bibliography sections in PDFs during analysis.
 - **📊 LDA Model with Scikit-Learn**: Implements LDA to identify topics and extract relevant terms.
+- **📅 Decade Analysis**: Group and visualize topic trends by decade or custom year intervals.
+- **📤 Export Results**: Download topic charts and data as PNG and CSV files.
 
 ### ❌ **Not Working**
-- **📊 Topic Visualization**:
-  - Currently does not correctly generate a chart visualizing topics and trends over time.
-- **📅 Year-Based Trend Visualization**:
-  - Currently does not correctly correlate topics with decades from the documents.
 - **⚠️ Error Handling for Incorrect Inputs**:
   - Insufficient validation for improperly formatted ZIP files (e.g., missing PDFs).
 
 ### 🔜 **Planned Features**
-- **📅 Improved Year Extraction**:
-  - Extract publication years from metadata or document text for trend analysis.
 - **📄 Better PDF Parsing**:
   - Support for a wider variety of PDF formats (e.g., scanned PDFs using OCR).
-- **📈 Interactive Visualizations**:
-  - Enable users to interact with topic charts for deeper insights.
 - **🌍 Multi-Language Support**:
   - Add support for stopwords and analysis in other languages.
-- **📤 Export Results**:
-  - Allow users to download topics and visualizations as files (CSV, PNG, etc.).
 - **⏱️ Real-Time Analysis Progress**:
   - Display progress during the analysis for better user experience.
 - **⚙️ Advanced Preprocessing Options**:
@@ -70,14 +62,14 @@ Follow these steps to set up the application on your local machine:
    ```
 4. Run the server:
    ```bash
-   npm start
+   npm start --no-reload
    ```
 
 ---
 
 ## 💡 Usage
 
-1. Launch the server using `npm start`, which will run on `http://localhost:3000` by default.
+1. Launch the server using `npm start --no-reload`, which will run on `http://localhost:3000` by default.
 2. Navigate to `http://localhost:3000` in your browser.
 3. Upload a `.zip` file containing academic PDFs.
 4. Specify the desired parameters:
@@ -102,7 +94,8 @@ Follow these steps to set up the application on your local machine:
 - **Topic List**:
   - **Topic 1**: data, model, learning, algorithm, neural, network, training, accuracy, performance, features
   - **Topic 2**: method, analysis, system, simulation, process, parameters, experiment, conditions, testing, results
-- **Visualization**: Chart showing topic trends over time. *(Currently under development)*
+- **Visualization**: Charts showing topic trends over time and word importance distributions.
+- **Model Comparison**: Metrics for the best-performing LDA model (if multi-model checking is enabled).
 
 ---
 
@@ -139,7 +132,6 @@ We welcome contributions! Here's how you can get involved:
    ```
 5. Open a **Pull Request**.
 
-
 ---
 
 ## 📬 Contact
@@ -149,4 +141,21 @@ If you have any questions or need help, feel free to reach out:
 - **Email**: [kpeddakotla@gmail.com](mailto:kpeddakotla@gmail.com)
 - **GitHub**: [kpeddakotla](https://github.com/kpeddakotla)
 
+---
 
+## 🙏 Acknowledgments
+
+This project was developed in collaboration with:
+- **Dr. Javier Gomez-Lavin**
+- **Dr. Bruce Michael Rushing**
+
+Special thanks to the **VRAI Lab** for their support and resources.  
+🔗 [Visit the VRAI Lab](https://www.vrai-lab.com)
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---

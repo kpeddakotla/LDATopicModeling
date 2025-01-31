@@ -23,6 +23,9 @@ import pandas as pd
 import gc
 import time
 from sklearn.feature_extraction.text import TfidfTransformer
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+
 
 app = Flask(__name__)
 CORS(app)
@@ -42,6 +45,13 @@ logging.getLogger("PIL").setLevel(logging.INFO)
 # Download NLTK stopwords
 nltk.download("stopwords")
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
+
+def get_stopwords(language='english'):
+    try:
+        return set(stopwords.words(language))
+    except LookupError:
+        nltk.download('stopwords')
+        return set(stopwords.words(language))
 
 # Function to extract the year from the file name
 def extract_year_from_title(file_name):
@@ -147,6 +157,16 @@ def get_top_papers(doc_topic_matrix, topic_idx, titles, years, n=5):
         "score_pct": f"{topic_scores[i] * 100:.1f}%"
     } for i in top_indices]
 
+def preprocess_text(text, stem=False, lemmatize=False):
+    tokens = word_tokenize(text.lower())
+    if stem:
+        stemmer = PorterStemmer()
+        tokens = [stemmer.stem(token) for token in tokens]
+    if lemmatize:
+        lemmatizer = WordNetLemmatizer()
+        tokens = [lemmatizer.lemmatize(token) for token in tokens]
+    return " ".join(tokens)
+
 def analyze_task(file, form_data):
     zip_path = None
     extracted_path = None
@@ -159,7 +179,9 @@ def analyze_task(file, form_data):
         additional_stopwords = [word.strip() for word in additional_stopwords]
 
         # Prepare stopwords
-        default_stopwords = stopwords.words("english")
+        language = form_data.get("language", "english")
+        default_stopwords = get_stopwords(language)
+        additional_stopwords = form_data.get("stopwords", "").split(",")
         all_stopwords = list(set(default_stopwords + additional_stopwords))
 
         # Process ZIP file
@@ -182,6 +204,9 @@ def analyze_task(file, form_data):
                     logger.debug(f"Processing PDF: {pdf_path}")
 
                     text = extract_text_from_pdf(pdf_path)
+                    stem = form_data.get("stem", "false").lower() == "true"
+                    lemmatize = form_data.get("lemmatize", "false").lower() == "true"
+                    cleaned_text = preprocess_text(text, stem=stem, lemmatize=lemmatize)
                     if not text:
                         logger.warning(f"No text extracted from {pdf_path}")
                         continue

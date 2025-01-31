@@ -3,6 +3,7 @@ import PropTypes from "prop-types";
 import { useDropzone } from "react-dropzone";
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import Footer from './Footer';
 
 // File Upload Component
 const FileUpload = ({ getRootProps, getInputProps, file }) => (
@@ -27,6 +28,7 @@ const Settings = ({
   stopwords, 
   setStopwords 
 }) => (
+  
   <div style={styles.settingsContainer}>
     {/* Number of Topics and Words per Topic */}
     {[{ label: "Number of Topics:  ", value: numTopics, setValue: setNumTopics },
@@ -432,6 +434,7 @@ const App = () => {
       )}
 
       </div>
+      <Footer />
     </div>
   );  
 };
