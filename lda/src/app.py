@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import gc
 import time
+from sklearn.feature_extraction.text import TfidfTransformer
 
 app = Flask(__name__)
 CORS(app)
@@ -120,18 +121,6 @@ def generate_decade_chart(decade_topic_distribution, lda):
     
     return decade_chart
 
-def generate_chart(data, title):
-    fig, ax = plt.subplots()
-    ax.plot(data['x'], data['y'])
-    ax.set_title(title)
-    # Save plot to BytesIO and convert to base64
-    img_stream = BytesIO()
-    plt.savefig(img_stream, format='png')
-    plt.close(fig)
-    img_stream.seek(0)
-    return base64.b64encode(img_stream.read()).decode('utf-8')
-
-
 def group_by_decades(years, doc_topic_matrix):
     bins = np.arange(1950, 2030, 10)
     years_decade_group = np.digitize(years, bins)
@@ -148,34 +137,60 @@ def group_by_decades(years, doc_topic_matrix):
 
     return decade_topic_distribution
 
+def get_top_papers(doc_topic_matrix, topic_idx, titles, years, n=5):
+    topic_scores = doc_topic_matrix[:, topic_idx]
+    top_indices = np.argsort(topic_scores)[::-1][:n]
+    return [{
+        "title": titles[i],
+        "year": years[i] or "Unknown",
+        "score": float(topic_scores[i]),
+        "score_pct": f"{topic_scores[i] * 100:.1f}%"
+    } for i in top_indices]
+
 def analyze_task(file, form_data):
     zip_path = None
     extracted_path = None
     try:
+        # Extract parameters
         num_topics = int(form_data.get("numTopics", 5))
         num_words = int(form_data.get("numWords", 10))
         skip_bibliography = form_data.get("skip_bibliography", "false").lower() == "true"
         additional_stopwords = form_data.get("stopwords", "").split(",")
         additional_stopwords = [word.strip() for word in additional_stopwords]
 
+        # Prepare stopwords
         default_stopwords = stopwords.words("english")
         all_stopwords = list(set(default_stopwords + additional_stopwords))
 
-        # Extract and process PDF files
-        zip_path = tempfile.mktemp()
+        # Process ZIP file
+        zip_path = tempfile.mktemp(suffix=".zip")
         file.save(zip_path)
         extracted_path = tempfile.mkdtemp()
+        
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(extracted_path)
 
+        # Extract and clean text
         pdf_texts = []
+        titles = []
+        years = []
+        pdf_count = 0
+
         for root, _, files in os.walk(extracted_path):
             for file_name in files:
                 if file_name.endswith(".pdf"):
                     pdf_path = os.path.join(root, file_name)
                     text = extract_text_from_pdf(pdf_path)
+                    
+                    if not text.strip():
+                        logger.warning(f"Skipping empty PDF: {file_name}")
+                        continue
+
                     cleaned_text = clean_pdf_text(text) if skip_bibliography else text
                     pdf_texts.append(cleaned_text)
+                    titles.append(file_name)
+                    years.append(extract_year_from_title(file_name))
+                    pdf_count += 1
 
         if not pdf_texts:
             return {"error": "No valid text extracted from PDFs."}
@@ -183,72 +198,111 @@ def analyze_task(file, form_data):
         # Create document-term matrix
         vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words=all_stopwords)
         doc_term_matrix = vectorizer.fit_transform(pdf_texts)
+        feature_names = vectorizer.get_feature_names_out()
 
         # Train LDA model
         lda = LDA(n_components=num_topics, random_state=42)
         lda.fit(doc_term_matrix)
+        doc_topic_matrix = lda.transform(doc_term_matrix)
 
-        # Get feature names and components
-        feature_names = vectorizer.get_feature_names_out()
-        components = lda.components_
-        
+        # Calculate advanced metrics
+        def compute_tfidf_across_topics(components):
+            tf = components
+            df = np.sum(tf > 0, axis=0)
+            idf = np.log(tf.shape[0] / (df + 1e-12))
+            return tf * idf
+
+        tfidf_scores = compute_tfidf_across_topics(lda.components_)
+        marginal_word_prob = lda.components_.sum(axis=0) / lda.components_.sum()
+
+        # Generate topic data with enhanced metrics
+        topics = []
         topic_charts = {}
-        for topic_idx, topic_weights in enumerate(components):
-            plt.figure(figsize=(10, 6))
+        
+        for topic_idx in range(num_topics):
+            topic_weights = lda.components_[topic_idx]
             
-            # Get top words and raw weights
-            top_indices = topic_weights.argsort()[-num_words:][::-1]
+            # Calculate advanced metrics
+            lift_scores = topic_weights / (marginal_word_prob + 1e-12)
+            saliency_scores = topic_weights * np.log(lift_scores + 1e-12)
+            
+            # Combined importance score (adjust weights as needed)
+            combined_scores = (
+                0.5 * topic_weights + 
+                0.3 * tfidf_scores[topic_idx] + 
+                0.2 * saliency_scores
+            )
+
+            # Get top words using combined scores
+            top_indices = combined_scores.argsort()[-num_words:][::-1]
             top_words = [feature_names[i] for i in top_indices]
             raw_weights = topic_weights[top_indices]
             
-            # Convert to percentages of total topic weight
+            # Calculate word entropy
+            word_entropy = []
+            for word_idx in top_indices:
+                p_t_given_w = lda.components_[:, word_idx] / (lda.components_[:, word_idx].sum() + 1e-12)
+                entropy = -np.sum(p_t_given_w * np.log(p_t_given_w + 1e-12))
+                word_entropy.append(entropy)
+
+            # Normalize scores for visualization
             total_weight = raw_weights.sum()
             percentages = (raw_weights / total_weight * 100).round(2)
-            
-            # Create horizontal bar chart with percentages
-            plt.barh(top_words, percentages, color='steelblue')
+
+            # Create visualization
+            plt.figure(figsize=(10, 6))
+            bars = plt.barh(top_words, percentages, color='steelblue')
             plt.gca().invert_yaxis()
-            plt.xlabel('Percentage Importance (%)')
+            plt.xlabel('Relative Importance (%)')
             plt.title(f'Topic {topic_idx + 1} - Word Distribution')
             
-            # Add value labels
-            for i, (word, pct) in enumerate(zip(top_words, percentages)):
-                plt.text(pct + 0.5, i, f'{pct:.1f}%', va='center', fontsize=8)
-            
-            plt.tight_layout()
-            
-            # Save to buffer
+            # Add metric annotations
+            for i, (word, pct, entropy) in enumerate(zip(top_words, percentages, word_entropy)):
+                plt.text(pct + 0.5, i, 
+                        f'{pct:.1f}%\nLift: {lift_scores[top_indices[i]]:.2f}\nEntropy: {entropy:.2f}',
+                        va='center', fontsize=8)
+
+            # Save chart
             img_buffer = BytesIO()
             plt.savefig(img_buffer, format='png', bbox_inches='tight', dpi=120)
             img_buffer.seek(0)
             topic_charts[f"Topic {topic_idx + 1}"] = base64.b64encode(img_buffer.read()).decode('utf-8')
             plt.close()
-        doc_topic_matrix = lda.transform(doc_term_matrix)
 
-        # Prepare topic metadata with both values
-        topics = []
-        for topic_idx in range(num_topics):
-            topic_scores = doc_topic_matrix[:, topic_idx]
-            top_doc_indices = np.argsort(topic_scores)[::-1][:5]
-            top_word_indices = components[topic_idx].argsort()[-num_words:][::-1]
-            top_words = [feature_names[i] for i in top_word_indices]
-            raw_weights = components[topic_idx][top_word_indices]
-            total_weight = raw_weights.sum()
-            
+            # Store topic metadata
             topics.append({
                 "Topic": f"Topic {topic_idx + 1}",
                 "Words": ", ".join(top_words),
                 "WordScores": {
                     "raw": raw_weights.tolist(),
-                    "percentages": (raw_weights / total_weight * 100).round(2).tolist()
+                    "percentages": percentages.tolist(),
+                    "lift": lift_scores[top_indices].tolist(),
+                    "saliency": saliency_scores[top_indices].tolist(),
+                    "entropy": word_entropy,
+                    "combined": combined_scores[top_indices].tolist()
                 }
             })
+
+        # Calculate time period
+        valid_years = [y for y in years if y is not None]
+        time_period = (
+            f"{min(valid_years)}-{max(valid_years)}" 
+            if valid_years 
+            else "N/A"
+        )
 
         return {
             "topics": topics,
             "topic_charts": topic_charts,
+            "num_pdfs": pdf_count,
+            "num_topics": num_topics,
+            "num_words": num_words,
+            "time_period": time_period,
+            "titles": titles,
+            "years": years,
             "vectorizer": vectorizer,
             "lda_model": lda,
+            "doc_topic_matrix": doc_topic_matrix,
             "additional_stopwords": additional_stopwords
         }
 
@@ -257,7 +311,7 @@ def analyze_task(file, form_data):
         return {"error": str(e)}
     finally:    
         plt.close('all')
-        gc.collect() 
+        gc.collect()
         try:
             if zip_path and os.path.exists(zip_path):
                 os.remove(zip_path)
@@ -273,22 +327,32 @@ def analyze_task(file, form_data):
 @app.route('/analyze', methods=["POST"])
 def analyze():
     file = request.files.get("file")
+
     if not file:
         return jsonify({"error": "No file uploaded"}), 400
 
     try:
         form_data = request.form.to_dict()
         result = analyze_task(file, form_data)
-        
+
         if "error" in result:
             return jsonify(result), 500
+
+        # Generate decade chart if requested
+        if form_data.get("include_decade_analysis", "false").lower() == "true":
+            decade_chart = generate_decade_chart(
+                group_by_decades(result['years'], result['doc_topic_matrix']),  # Use result['doc_topic_matrix']
+                result['lda_model']  # Use result['lda_model']
+            )
+            result['decade_chart_base64'] = decade_chart
 
         return jsonify({
             'topics': result['topics'],
             'topic_charts': result['topic_charts'],
+            'decade_chart_base64': result.get('decade_chart_base64', None),
             'cache_id': int(time.time())
         })
-        
+
     except Exception as e:
         logger.error(f"Analysis failed: {str(e)}")
         return jsonify({"error": "Analysis failed", "details": str(e)}), 500

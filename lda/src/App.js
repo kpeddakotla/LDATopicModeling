@@ -38,9 +38,9 @@ const Settings = ({
               value={value}
               onChange={(e) => {
                 console.debug(`Input change for ${label}: ${e.target.value}`);
-                setValue(Math.min(45, Math.max(1, parseInt(e.target.value, 10) || 1)));
+                setValue(Math.min(45, Math.max(0, parseInt(e.target.value, 10) || 0)));
               }}
-              min="1"
+              min="0"
               max="45"
               style={styles.input}
             />
@@ -70,6 +70,7 @@ const Settings = ({
 
 Settings.propTypes = {
   numTopics: PropTypes.number.isRequired,
+  numPapers: PropTypes.number.isRequired,
   setNumTopics: PropTypes.func.isRequired,
   numWords: PropTypes.number.isRequired,
   setNumWords: PropTypes.func.isRequired,
@@ -114,53 +115,6 @@ BibliographySettings.propTypes = {
   setIncludeDecadeAnalysis: PropTypes.func.isRequired,
 };
 
-// Results Component
-const Results = ({ 
-  results, 
-  chartBase64, 
-  selectedTopic, 
-  setSelectedTopic, 
-  decadeChartBase64,
-  includeDecadeAnalysis,
-  topicCharts
-}) => (
-  <div style={styles.resultsContainer}>
-    {/* Topic charts container */}
-    <div style={styles.chartContainer}>
-      <h3>Topic Distributions</h3>
-      {Object.entries(topicCharts || {}).map(([topicName, chartData]) => (
-        <img
-          src={`data:image/png;base64,${chartData}`}
-          alt={`${topicName} Distribution`}
-          style={styles.chartImage}
-        />
-      ))}
-    </div>
-
-    {/* Decade chart - conditional and scaled */}
-    {includeDecadeAnalysis && decadeChartBase64 && (
-      <div style={styles.decadeChartContainer}>
-        <h3>Decade Distribution</h3>
-        <img
-          src={`data:image/png;base64,${decadeChartBase64}`}
-          alt="Decade Distribution Chart"
-          style={styles.chartImage}
-        />
-      </div>
-    )}
-  </div>
-);
-
-
-Results.propTypes = {
-  results: PropTypes.array.isRequired,
-  chartBase64: PropTypes.string,
-  selectedTopic: PropTypes.string,
-  setSelectedTopic: PropTypes.func.isRequired,
-  decadeChartBase64: PropTypes.string,
-};
-
-
 // Main App Component
 const App = () => {
   const [numTopics, setNumTopics] = useState(5); // Track number of topics
@@ -176,14 +130,15 @@ const App = () => {
   const [selectedTopic, setSelectedTopic] = useState("");
   const [topics, setTopics] = useState([]);
   const [showExplanation, setShowExplanation] = useState(false);
-
+  const timePeriod = results?.years?.length ? 
+  `${Math.min(...results.years.filter(y => y))}-${Math.max(...results.years.filter(y => y))}` : 
+  'N/A';
   const handleTopicSelect = (event) => {
     const selectedTopicId = event.target.value;
     const topic = topics.find((topic) => topic.Topic === selectedTopicId);
     setSelectedTopic(topic); // Update the selected topic based on user selection
   };
 
-  
   const explanationContent = (
     <div style={styles.explanationBox}>
       <button 
@@ -194,13 +149,46 @@ const App = () => {
       </button>
       <div style={styles.explanationContent}>
         <p style={styles.explanationText}>
-          <strong>Word Importance Calculation:</strong><br/>
-          Percentage = (word score ÷ total topic score) × 100
+          <strong>Enhanced Word Importance Calculation:</strong><br/>
+          Combined Score = (0.5 × Raw Score) + (0.3 × TF-IDF) + (0.2 × Saliency)
         </p>
         <ul style={styles.explanationList}>
-          <li>Word score: Raw importance from LDA model</li>
-          <li>Total score: Sum of top {results?.topics[0]?.Words.split(', ').length} word scores</li>
-          <li>Percentage shows relative contribution to topic</li>
+          <li>
+            <strong>Raw Score:</strong> Basic importance from LDA model
+          </li>
+          <li>
+            <strong>TF-IDF:</strong> Term frequency adjusted for cross-topic rarity
+          </li>
+          <li>
+            <strong>Saliency:</strong> Balances frequency and distinctiveness
+          </li>
+          <li>
+            <strong>Lift:</strong> Specificity ratio (topic vs global probability)
+          </li>
+          <li>
+            <strong>Entropy:</strong> Measures topic concentration (lower = more specific)
+          </li>
+        </ul>
+      </div>
+  
+      <div style={styles.explanationContent}>
+        <p style={styles.explanationText}>
+          This analysis processed {results?.num_pdfs || 0} PDF documents,
+          identifying {results?.num_topics || 0} key topics with {
+          results?.num_words || 0} words per topic.
+        </p>
+        <p style={styles.explanationText}>Key Metrics:</p>
+        <ul style={styles.explanationList}>
+          <li>📄 Processed Documents: {results?.num_pdfs || 0}</li>
+          <li>🗂️ Identified Topics: {results?.num_topics || 0}</li>
+          <li>🔠 Words per Topic: {results?.num_words || 0}</li>
+          <li>⏳ Time Period: {timePeriod}</li>
+          <li>⚖️ Average Lift: {
+            results?.topics[0]?.WordScores?.lift 
+              ? (results.topics[0].WordScores.lift.reduce((a,b) => a + b, 0) / 
+                results.topics[0].WordScores.lift.length).toFixed(1)
+              : 'N/A'
+          }</li>
         </ul>
       </div>
     </div>
@@ -345,20 +333,26 @@ const App = () => {
             <h4>Topics:</h4>
             {topics && topics.length > 0 ? (
               <div>
-                <label htmlFor="topicDropdown">Select a Topic: </label>
-                <select
-                  id="topicDropdown"
-                  value={selectedTopic ? selectedTopic.Topic : ""}
-                  onChange={handleTopicSelect}
-                >
-                  <option value="">-- Select a Topic --</option>
-                  {topics.map((topic, index) => (
-                    <option key={index} value={topic.Topic}>
-                      {topic.Topic}
+                <div style={styles.dropdownContainer}>
+                  <label htmlFor="topicDropdown" style={styles.dropdownLabel}>
+                    Select a Topic: 
+                  </label>
+                  <select
+                    id="topicDropdown"
+                    value={selectedTopic ? selectedTopic.Topic : ""}
+                    onChange={handleTopicSelect}
+                    style={styles.topicDropdown} // Apply topicDropdown styles here
+                  >
+                    <option value="" style={styles.dropdownOption}>
+                      -- Select a Topic --
                     </option>
-                  ))}
-                </select>
-
+                    {topics.map((topic, index) => (
+                      <option key={index} value={topic.Topic} style={styles.dropdownOption}>
+                        {topic.Topic}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 {selectedTopic && (
                   <div>
                     <h4>{selectedTopic.Topic}</h4>
@@ -378,16 +372,16 @@ const App = () => {
                     />
                   </div>
                 )}
-                <div style={styles.resultsContainer}>
-                </div>
                 {includeDecadeAnalysis && decadeChartBase64 && (
                   <div>
                     <h4>📅 Decade Analysis Chart</h4>
+                    <div style={styles.selectedTopicChart}>
                     <img 
                       src={`data:image/png;base64,${decadeChartBase64}`} 
                       alt="Decade Analysis Chart" 
-                      style={styles.chartImage}
+                      style={styles.responsiveChartImage}
                     />
+                    </div>
                   </div>
                 )}
               </div>
@@ -423,76 +417,17 @@ const App = () => {
 
 // Dark Mode Styles
 const styles = {
-  selectedTopicChart: {
-    width: '95%',
-    maxWidth: '1000px',
-    margin: '20px 0',
-    padding: '20px',
-    backgroundColor: '#fff',
-    borderRadius: '8px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-  },
-  responsiveChartImage: {
-    width: '100%',
-    height: 'auto',
-    maxHeight: '600px',
-    objectFit: 'contain',
-    border: '1px solid #eee',
-    borderRadius: '4px'
-  },
-  chartTitle: {
-    color: '#333',
-    marginBottom: '15px',
-    fontSize: '1.25rem',
-    fontWeight: '500'
-  },
-  chartContainer: {
-    width: '100%',
-    maxWidth: '1200px',  // Maximum container width
-    margin: '0 auto',    // Center container
-    padding: '20px 0'
-  },
-  exportButtons: {
-    margin: '20px 0',
-    display: 'flex',
-    gap: '10px'
-  },
-  exportButton: {
-    padding: '10px 20px',
-    backgroundColor: '#6200EE',
-    color: 'white',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    '&:hover': {
-      backgroundColor: '#45a049'
-    }
-  },
-  chartImage: {
-    width: '100%',       // Fill container width
-    height: 'auto',      // Maintain aspect ratio
-    maxHeight: '80vh',   // Prevent vertical overflow
-    objectFit: 'contain' // Prevent distortion
-  },
-  decadeChartContainer: {
-    width: '50%',
-    marginTop: '30px',
-    padding: '20px',
-    backgroundColor: '#f8f9fa',
-    borderRadius: '8px'
-  },
   container: {
     padding: "30px",
     marginTop: "40px",
     fontFamily: "Arial, sans-serif",
-    backgroundColor: "#121212", // Dark background color
+    backgroundColor: "#121212",
     borderRadius: "8px",
-    boxShadow: "0 2px 10px rgba(0, 0, 0, 0.5)", // Darker shadow for better depth
+    boxShadow: "0 2px 10px rgba(0, 0, 0, 0.5)",
     maxWidth: "700px",
     margin: "auto",
     textAlign: "center",
-    color: "#E0E0E0", // Light gray text
+    color: "#E0E0E0",
   },
   header: {
     color: "#FFF",
@@ -500,13 +435,13 @@ const styles = {
     marginBottom: "20px",
   },
   dropzone: {
-    border: "2px dashed #FFFFFF", // Light gray border
+    border: "2px dashed #FFFFFF",
     padding: "30px",
     marginBottom: "20px",
-    backgroundColor: "#1F1F1F", // Darker background for the dropzone
+    backgroundColor: "#1F1F1F",
     cursor: "pointer",
     borderRadius: "8px",
-    color: "#E0E0E0", // Light text
+    color: "#E0E0E0",
   },
   settingsContainer: {
     marginBottom: "20px",
@@ -516,15 +451,15 @@ const styles = {
     textAlign: "left",
   },
   input: {
-    backgroundColor: "#333", // Dark background for inputs
-    color: "#E0E0E0", // Light text
-    border: "1px solid #444", // Slightly lighter border for inputs
+    backgroundColor: "#333",
+    color: "#E0E0E0",
+    border: "1px solid #444",
     padding: "5px",
     borderRadius: "4px",
     width: "100px",
   },
   button: {
-    backgroundColor: "#6200EE", // Bright accent color for the button
+    backgroundColor: "#6200EE",
     color: "#FFF",
     padding: "10px 20px",
     fontSize: "16px",
@@ -544,9 +479,9 @@ const styles = {
     color: "#FFF",
   },
   stopwordsInput: {
-    backgroundColor: "#333", // Dark background for inputs
-    color: "#E0E0E0", // Light text
-    border: "1px solid #444", // Slightly lighter border for inputs
+    backgroundColor: "#333",
+    color: "#E0E0E0",
+    border: "1px solid #444",
     padding: "5px",
     borderRadius: "4px",
     width: "100%",
@@ -566,100 +501,244 @@ const styles = {
   checkbox: {
     marginRight: "10px",
   },
-  dropdown: {
-    marginLeft: "10px",
-    padding: "5px",
+  dropdownContainer: {
+    margin: "10px 0",
+    position: "relative",
+    maxWidth: "200px",
+    width: "100%",
+    backgroundColor: "#121212", // Black background
+  },
+  dropdownLabel: {
+    display: "block",
+    marginBottom: "8px",
+    color: "#FFFFFF", // White text
+    fontSize: "0.95rem",
+    fontWeight: "500",
+    backgroundColor: "#121212", // Black background
+  },
+  topicDropdown: {
+    width: "100%",
+    padding: "12px 16px",
+    fontSize: "0.85rem",
+    backgroundColor: "#1A1A1A", // Dark grey background
+    border: "1px solid #333", // Grey border
+    borderRadius: "8px",
+    color: "#FFFFFF", // White text
+    appearance: "none",
+    transition: "all 0.3s ease",
+    cursor: "pointer",
+    "&:hover": {
+      borderColor: "#555", // Lighter grey border on hover
+      backgroundColor: "#2A2A2A", // Slightly lighter grey background
+    },
+    "&:focus": {
+      outline: "none",
+      borderColor: "#4CAF50", // Green border on focus
+      boxShadow: "0 0 0 2px rgba(76, 175, 80, 0.2)", // Green focus shadow
+    },
+  },
+  dropdownOption: {
+    backgroundColor: "#1F1F1F", // Dark grey option background
+    color: "#FFFFFF", // White text
+    padding: "12px",
+    fontSize: "0.85rem",
+    "&:hover": {
+      backgroundColor: "#4CAF50", // Green background on hover
+      color: "#FFFFFF", // White text on hover
+    },
+  },
+  dropdownArrow: {
+    position: "absolute",
+    right: "15px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    pointerEvents: "none",
+    color: "#AAAAAA", // Light grey arrow
+    fontSize: "1.2rem",
+  },
+  
+  selectedTopicChart: {
+    width: "95%",
+    maxWidth: "1000px",
+    margin: "20px 0",
+    padding: "20px",
+    backgroundColor: "#fff",
+    borderRadius: "8px",
+    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+  },
+  responsiveChartImage: {
+    width: "100%",
+    height: "auto",
+    maxHeight: "600px",
+    objectFit: "contain",
+    border: "1px solid #eee",
     borderRadius: "4px",
-    backgroundColor: "#333",
-    color: "#E0E0E0",
+  },
+  chartTitle: {
+    color: "#333",
+    marginBottom: "15px",
+    fontSize: "1.25rem",
+    fontWeight: "500",
+  },
+  chartContainer: {
+    width: "100%",
+    maxWidth: "1200px",
+    margin: "0 auto",
+    padding: "20px 0",
+  },
+  exportButtons: {
+    margin: "20px 0",
+    display: "flex",
+    gap: "10px",
+  },
+  exportButton: {
+    padding: "10px 20px",
+    backgroundColor: "#6200EE",
+    color: "white",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+    fontSize: "14px",
+    "&:hover": {
+      backgroundColor: "#45a049",
+    },
+  },
+  chartImage: {
+    width: "100%",
+    height: "auto",
+    maxHeight: "80vh",
+    objectFit: "contain",
+  },
+  decadeChartContainer: {
+    width: "50%",
+    marginTop: "30px",
+    padding: "20px",
+    backgroundColor: "#f8f9fa",
+    borderRadius: "8px",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "10px",
+  },
+  infoButton: {
+    background: "none",
+    border: "none",
+    color: "#FFFFFF",
+    fontSize: "1.1rem",
+    cursor: "pointer",
+    padding: "5px",
+    borderRadius: "50%",
+    width: "28px",
+    height: "28px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    "&:hover": {
+      backgroundColor: "#f0f0f0",
+    },
+  },
+  explanationBox: {
+    position: "relative",
+    backgroundColor: "#f8f9fa",
+    borderRadius: "6px",
+    padding: "15px",
+    margin: "10px 0",
+    border: "1px solid #dee2e6",
+    fontSize: "0.9rem",
+  },
+  explanationContent: {
+    marginRight: "20px",
+  },
+  explanationText: {
+    margin: "0 0 10px 0",
+    color: "#495057",
+    lineHeight: "1.4",
+  },
+  explanationList: {
+    margin: "0",
+    paddingLeft: "20px",
+    color: "#6c757d",
+  },
+  closeButton: {
+    position: "absolute",
+    top: "5px",
+    right: "5px",
+    background: "none",
+    border: "none",
+    color: "#6c757d",
+    fontSize: "1.3rem",
+    cursor: "pointer",
+    padding: "2px 5px",
+    "&:hover": {
+      color: "#495057",
+    },
   },
   wordScores: {
-    marginTop: '10px',
-    padding: '10px',
-    backgroundColor: '#2A2A2A',
-    borderRadius: '6px'
+    marginTop: "10px",
+    padding: "10px",
+    backgroundColor: "#2A2A2A",
+    borderRadius: "6px",
   },
   scoreRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    margin: '5px 0'
+    display: "flex",
+    justifyContent: "space-between",
+    margin: "5px 0",
   },
   wordLabel: {
     flex: 2,
-    textAlign: 'left'
+    textAlign: "left",
   },
   percentage: {
     flex: 1,
-    textAlign: 'right',
-    color: '#4CAF50', // Green for percentages
-    margin: '0 10px'
+    textAlign: "right",
+    color: "#4CAF50",
+    margin: "0 10px",
   },
   rawScore: {
     flex: 1,
-    textAlign: 'right',
-    color: '#9E9E9E', // Grey for raw scores
-    fontSize: '0.8em'
+    textAlign: "right",
+    color: "#9E9E9E",
+    fontSize: "0.8em",
   },
-  
-  headerRow: {
+  topicSelection: {
+    margin: '20px 0',
+  },
+  topicDetail: {
+    backgroundColor: '#2A2A2A',
+    padding: '20px',
+    borderRadius: '8px',
+    margin: '20px 0',
+  },
+  decadeAnalysis: {
+    marginTop: '40px',
+    padding: '20px',
+    backgroundColor: '#2A2A2A',
+    borderRadius: '8px',
+  },
+  statsContainer: {
+    backgroundColor: '#2A2A2A',
+    padding: '15px',
+    borderRadius: '8px',
+    margin: '20px 0',
+  },
+  statItem: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '10px',
+    margin: '8px 0',
+    padding: '8px',
+    backgroundColor: '#333',
+    borderRadius: '4px',
   },
-  infoButton: {
-    background: 'none',
-    border: 'none',
-    color: '#FFFFFF',
-    fontSize: '1.1rem',
-    cursor: 'pointer',
-    padding: '5px',
-    borderRadius: '50%',
-    width: '28px',
-    height: '28px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    '&:hover': {
-      backgroundColor: '#f0f0f0',
-    }
+  statLabel: {
+    color: '#E0E0E0',
+    fontWeight: '500',
   },
-  explanationBox: {
-    position: 'relative',
-    backgroundColor: '#f8f9fa',
-    borderRadius: '6px',
-    padding: '15px',
-    margin: '10px 0',
-    border: '1px solid #dee2e6',
-    fontSize: '0.9rem',
-  },
-  explanationContent: {
-    marginRight: '20px', // Space for close button
-  },
-  explanationText: {
-    margin: '0 0 10px 0',
-    color: '#495057',
-    lineHeight: '1.4',
-  },
-  explanationList: {
-    margin: '0',
-    paddingLeft: '20px',
-    color: '#6c757d',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: '5px',
-    right: '5px',
-    background: 'none',
-    border: 'none',
-    color: '#6c757d',
-    fontSize: '1.3rem',
-    cursor: 'pointer',
-    padding: '2px 5px',
-    '&:hover': {
-      color: '#495057',
-    }
-  },
+  statValue: {
+    color: '#4CAF50',
+    fontWeight: '600',
+  }
 };
 
 export default App;
