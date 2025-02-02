@@ -1,15 +1,18 @@
 import React, { useState } from "react";
 import PropTypes from "prop-types";
 import { useDropzone } from "react-dropzone";
-import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
-import Footer from './Footer';
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
+import Footer from "./Footer";
 
-// File Upload Component
 const FileUpload = ({ getRootProps, getInputProps, file }) => (
   <div {...getRootProps()} style={styles.dropzone}>
     <input {...getInputProps()} />
-    <p>{file ? file.name : "📁 Drag & drop a ZIP file here, or click to select one"}</p>
+    <p>
+      {file
+        ? file.name
+        : "📁 Drag & drop a ZIP file here, or click to select one"}
+    </p>
   </div>
 );
 
@@ -19,50 +22,57 @@ FileUpload.propTypes = {
   file: PropTypes.object,
 };
 
-// Settings Component
-const Settings = ({ 
-  numTopics, 
-  setNumTopics, 
-  numWords, 
-  setNumWords, 
-  stopwords, 
-  setStopwords 
+const Settings = ({
+  numTopics,
+  setNumTopics,
+  numWords,
+  setNumWords,
+  stopwords,
+  setStopwords,
 }) => (
-  
   <div style={styles.settingsContainer}>
-    {/* Number of Topics and Words per Topic */}
-    {[{ label: "Number of Topics:  ", value: numTopics, setValue: setNumTopics },
-      { label: "Number of Words per Topic:  ", value: numWords, setValue: setNumWords }]
-      .map(({ label, value, setValue }, index) => (
-        <div key={index} style={styles.setting}>
-          <label>
-            {label}
-            <input
-              type="number"
-              value={value}
-              onChange={(e) => {
-                console.debug(`Input change for ${label}: ${e.target.value}`);
-                setValue(Math.min(45, Math.max(0, parseInt(e.target.value, 10) || 0)));
-              }}
-              min="0"
-              max="45"
-              style={styles.input}
-            />
-          </label>
-        </div>
-      ))}
+    {[
+      {
+        label: "Number of Topics:  ",
+        value: numTopics,
+        setValue: setNumTopics,
+      },
+      {
+        label: "Number of Words per Topic:  ",
+        value: numWords,
+        setValue: setNumWords,
+      },
+    ].map(({ label, value, setValue }, index) => (
+      <div key={index} style={styles.setting}>
+        <label>
+          {label}
+          <input
+            type="number"
+            value={value}
+            onChange={(e) => {
+              console.debug(`Input change for ${label}: ${e.target.value}`);
+              setValue(
+                Math.min(45, Math.max(0, parseInt(e.target.value, 10) || 0))
+              );
+            }}
+            min="0"
+            max="45"
+            style={styles.input}
+          />
+        </label>
+      </div>
+    ))}
 
-    {/* Stopwords Input */}
     <div style={styles.setting}>
       <label>
-    <br />
+        <br />
         Additional Stopwords (comma-separated) 🚫:
         <input
           type="text"
           value={stopwords}
           onChange={(e) => {
-            console.debug("Stopwords input:", e.target.value); // Debug log
-            setStopwords(e.target.value); // Update stopwords state
+            console.debug("Stopwords input:", e.target.value); 
+            setStopwords(e.target.value); 
           }}
           placeholder="e.g., example, word, stop"
           style={styles.stopwordsInput}
@@ -82,8 +92,14 @@ Settings.propTypes = {
   setStopwords: PropTypes.func.isRequired,
 };
 
-// Bibliography Settings Component
-const BibliographySettings = ({ includeBibliography, setIncludeBibliography, includeDecadeAnalysis, setIncludeDecadeAnalysis, stopwords, setStopwords }) => (
+const BibliographySettings = ({
+  includeBibliography,
+  setIncludeBibliography,
+  includeDecadeAnalysis,
+  setIncludeDecadeAnalysis,
+  stopwords,
+  setStopwords,
+}) => (
   <div style={styles.bibliographyContainer}>
     <br />
     <br />
@@ -119,63 +135,59 @@ BibliographySettings.propTypes = {
   setIncludeDecadeAnalysis: PropTypes.func.isRequired,
 };
 
-// Main App Component
 const App = () => {
-  const [numTopics, setNumTopics] = useState(5); // Track number of topics
-  const [numWords, setNumWords] = useState(10); // Track number of words per topic
-  const [file, setFile] = useState(null); // Store the selected file
-  const [results, setResults] = useState(null); // Store analysis results
+  const [numTopics, setNumTopics] = useState(5);
+  const [numWords, setNumWords] = useState(10); 
+  const [file, setFile] = useState(null); 
+  const [results, setResults] = useState(null); 
   const [chartBase64, setChartBase64] = useState({});
   const [decadeChartBase64, setDecadeChartBase64] = useState({});
-  const [stopwords, setStopwords] = useState(""); // Define the stopwords state
-  const [includeBibliography, setIncludeBibliography] = useState(false); // Toggle bibliography inclusion
-  const [includeDecadeAnalysis, setIncludeDecadeAnalysis] = useState(false); // Toggle decade analysis inclusion
-  const [loading, setLoading] = useState(false); // Loading state during analysis
+  const [stopwords, setStopwords] = useState(""); 
+  const [includeBibliography, setIncludeBibliography] = useState(false); 
+  const [includeDecadeAnalysis, setIncludeDecadeAnalysis] = useState(false); 
+  const [loading, setLoading] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState("");
   const [topics, setTopics] = useState([]);
   const [showExplanation, setShowExplanation] = useState(false);
-  const timePeriod = results?.years?.length ? 
-  `${Math.min(...results.years.filter(y => y))}-${Math.max(...results.years.filter(y => y))}` : 
-  'N/A';
   const handleTopicSelect = (event) => {
     const selectedTopicId = event.target.value;
     const topic = topics.find((topic) => topic.Topic === selectedTopicId);
-    setSelectedTopic(topic); // Update the selected topic based on user selection
+    setSelectedTopic(topic); 
   };
-
+  const averageLift = results?.average_lift_per_topic
+  ? (results.average_lift_per_topic.reduce((a, b) => a + b, 0) / results.average_lift_per_topic.length).toFixed(1)
+  : 'N/A';
   const handleExportCharts = async () => {
     if (!chartBase64 && !decadeChartBase64) {
-      alert('No charts available to export!');
+      alert("No charts available to export!");
       return;
     }
-  
+
     const zip = new JSZip();
     const folder = zip.folder("topic_analysis_charts");
-    
-    // Add topic charts
+
     if (chartBase64) {
       Object.entries(chartBase64).forEach(([topicName, base64], index) => {
-        const content = base64.split(';base64,').pop();
-        folder.file(`${topicName.replace(/ /g, '_')}.png`, content, { base64: true });
+        const content = base64.split(";base64,").pop();
+        folder.file(`${topicName.replace(/ /g, "_")}.png`, content, {
+          base64: true,
+        });
       });
     }
-  
-    // Add decade chart
+
     if (decadeChartBase64) {
-      const decadeContent = decadeChartBase64.split(';base64,').pop();
+      const decadeContent = decadeChartBase64.split(";base64,").pop();
       folder.file("decade_analysis.png", decadeContent, { base64: true });
     }
-  
-    // Generate ZIP file
-    zip.generateAsync({ type: "blob" })
-      .then((content) => {
-        saveAs(content, "topic_analysis_charts.zip");
-      });
+
+    zip.generateAsync({ type: "blob" }).then((content) => {
+      saveAs(content, "topic_analysis_charts.zip");
+    });
   };
 
   const explanationContent = (
     <div style={styles.explanationBox}>
-      <button 
+      <button
         style={styles.closeButton}
         onClick={() => setShowExplanation(false)}
       >
@@ -183,7 +195,8 @@ const App = () => {
       </button>
       <div style={styles.explanationContent}>
         <p style={styles.explanationText}>
-          <strong>Enhanced Word Importance Calculation:</strong><br/>
+          <strong>Enhanced Word Importance Calculation:</strong>
+          <br />
           Combined Score = (0.5 × Raw Score) + (0.3 × TF-IDF) + (0.2 × Saliency)
         </p>
         <ul style={styles.explanationList}>
@@ -191,38 +204,39 @@ const App = () => {
             <strong>Raw Score:</strong> Basic importance from LDA model
           </li>
           <li>
-            <strong>TF-IDF:</strong> Term frequency adjusted for cross-topic rarity
+            <strong>TF-IDF:</strong> Term frequency adjusted for cross-topic
+            rarity
           </li>
           <li>
             <strong>Saliency:</strong> Balances frequency and distinctiveness
           </li>
           <li>
-            <strong>Lift:</strong> Specificity ratio (topic vs global probability)
+            <strong>Lift:</strong> Specificity ratio (topic vs global
+            probability)
           </li>
           <li>
-            <strong>Entropy:</strong> Measures topic concentration (lower = more specific)
+            <strong>Entropy:</strong> Measures topic concentration (lower = more
+            specific)
           </li>
         </ul>
       </div>
-  
+      <br></br>
       <div style={styles.explanationContent}>
         <p style={styles.explanationText}>
           This analysis processed {results?.num_pdfs || 0} PDF documents,
-          identifying {results?.num_topics || 0} key topics with {
-          results?.num_words || 0} words per topic.
+          identifying {results?.num_topics || 0} key topics with{" "}
+          {results?.num_words || 0} words per topic.
         </p>
         <p style={styles.explanationText}>Key Metrics:</p>
         <ul style={styles.explanationList}>
-          <li>📄 Processed Documents: {results?.num_pdfs || 0}</li>
+          <li>📄 Processed Documents: {results?.num_pdfs  || 0}</li>
           <li>🗂️ Identified Topics: {results?.num_topics || 0}</li>
           <li>🔠 Words per Topic: {results?.num_words || 0}</li>
-          <li>⏳ Time Period: {timePeriod}</li>
-          <li>⚖️ Average Lift: {
-            results?.topics[0]?.WordScores?.lift 
-              ? (results.topics[0].WordScores.lift.reduce((a,b) => a + b, 0) / 
-                results.topics[0].WordScores.lift.length).toFixed(1)
-              : 'N/A'
-          }</li>
+          <li>⏳ Time Period: {results?.time_period || 0}</li>
+          <li>
+            ⚖️ Average Lift:{" "}
+            {averageLift}
+          </li>
         </ul>
       </div>
     </div>
@@ -234,28 +248,28 @@ const App = () => {
       setFile(acceptedFiles[0]); // Set the file when dropped
     },
   });
-  
+
   const handleAnalyze = async () => {
     if (!file) {
       alert("Please upload a ZIP file.");
       return;
     }
-  
+
     // Set loading state before making the request
     setLoading(true);
-  
+
     // Clear previous results to reset state for the new analysis
     setResults(null);
     setChartBase64(null);
     setSelectedTopic(""); // Reset selected topic
-  
+
     // Clean and log the stopwords
     const cleanedStopwords = stopwords.trim();
     const stopwordsToSend = cleanedStopwords || ""; // Ensure it's always a string
-  
+
     console.log("Stopwords input:", stopwords);
     console.log("Stopwords to send:", stopwordsToSend);
-  
+
     const formData = new FormData();
     formData.append("file", file);
     formData.append("numTopics", numTopics);
@@ -263,23 +277,26 @@ const App = () => {
     formData.append("stopwords", stopwordsToSend); // Send stopwords to the backend
     formData.append("skip_bibliography", !includeBibliography);
     formData.append("include_decade_analysis", includeDecadeAnalysis); // Send decade analysis state
-  
+
     try {
       const response = await fetch("http://localhost:5000/analyze", {
         method: "POST",
         body: formData,
       });
-  
+
       const data = await response.json();
-  
+
       // Update the state with the results from the backend
       if (data.topics) {
         setTopics(data.topics);
         setResults(data);
       }
-  
-      console.log("Received stopwords from backend:", data.additional_stopwords);
-  
+
+      console.log(
+        "Received stopwords from backend:",
+        data.additional_stopwords
+      );
+
       if (data.topic_charts) {
         setChartBase64(data.topic_charts); // Store ALL topic charts
       }
@@ -293,150 +310,155 @@ const App = () => {
     } finally {
       setLoading(false);
     }
-  };  
+  };
 
   const handleExportCSV = () => {
     // Create CSV content
     const csvContent = [
       "Topic ID,Topic Name,Top Words,Word Scores",
-      ...results.topics.map(topic => 
-        `"${topic.Topic}","${topic.Topic}",` +
-        `"${topic.Words}","${topic.WordScores.percentages.join(', ')}"`
-      )
-    ].join('\n');
-  
+      ...results.topics.map(
+        (topic) =>
+          `"${topic.Topic}","${topic.Topic}",` +
+          `"${topic.Words}","${topic.WordScores.percentages.join(", ")}"`
+      ),
+    ].join("\n");
+
     // Create download
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = 'topic_analysis.csv';
+    a.download = "topic_analysis.csv";
     a.click();
     window.URL.revokeObjectURL(url);
   };
-  
+
   return (
     <div style={styles.container}>
       <h1 style={styles.header}>📚 PDF Topic Analysis</h1>
-      <FileUpload getRootProps={getRootProps} getInputProps={getInputProps} file={file} />
+      <FileUpload
+        getRootProps={getRootProps}
+        getInputProps={getInputProps}
+        file={file}
+      />
       <Settings
         numTopics={numTopics}
         setNumTopics={setNumTopics}
         numWords={numWords}
         setNumWords={setNumWords}
         stopwords={stopwords}
-        setStopwords={setStopwords} 
+        setStopwords={setStopwords}
       />
-      <BibliographySettings 
-        includeBibliography={includeBibliography} 
-        setIncludeBibliography={setIncludeBibliography} 
-        includeDecadeAnalysis={includeDecadeAnalysis} 
-        setIncludeDecadeAnalysis={setIncludeDecadeAnalysis} 
+      <BibliographySettings
+        includeBibliography={includeBibliography}
+        setIncludeBibliography={setIncludeBibliography}
+        includeDecadeAnalysis={includeDecadeAnalysis}
+        setIncludeDecadeAnalysis={setIncludeDecadeAnalysis}
       />
       <button onClick={handleAnalyze} style={styles.button} disabled={loading}>
         {loading ? "Analyzing..." : "🔍 Run Analysis"}
       </button>
       <div style={styles.resultsContainer}>
-      <div style={styles.headerRow}>
-                    <h3 style={styles.sectionHeader}>📊 Analysis Results</h3>
-                    <button 
-                      style={styles.infoButton}
-                      onClick={() => setShowExplanation(!showExplanation)}
-                    >
-                      ℹ
-                    </button>
-                  </div>
-                  
-                  {showExplanation && explanationContent} 
-      {loading ? (
-        <p>Loading analysis...</p>
-      ) : results && results.topics && results.topics.length > 0 ? (
-        <>
-          <div>
-            <h4>Topics:</h4>
-            {topics && topics.length > 0 ? (
-              <div>
-                <div style={styles.dropdownContainer}>
-                  <label htmlFor="topicDropdown" style={styles.dropdownLabel}>
-                    Select a Topic: 
-                  </label>
-                  <select
-                    id="topicDropdown"
-                    value={selectedTopic ? selectedTopic.Topic : ""}
-                    onChange={handleTopicSelect}
-                    style={styles.topicDropdown} // Apply topicDropdown styles here
-                  >
-                    <option value="" style={styles.dropdownOption}>
-                      -- Select a Topic --
-                    </option>
-                    {topics.map((topic, index) => (
-                      <option key={index} value={topic.Topic} style={styles.dropdownOption}>
-                        {topic.Topic}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {selectedTopic && (
-                  <div>
-                    <h4>{selectedTopic.Topic}</h4>
-                    <p>
-                      <strong>Words:</strong> {selectedTopic.Words || "No words available."}
-                    </p>
-                  </div>
-                )}
-
-                {/* Render Chart for the Selected Topic */}
-                {chartBase64 && selectedTopic && (
-                  <div style={styles.selectedTopicChart}>
-                    <img
-                      src={`data:image/png;base64,${chartBase64[selectedTopic.Topic]}`}
-                      alt={`${selectedTopic.Topic} distribution chart`}
-                      style={styles.responsiveChartImage}
-                    />
-                  </div>
-                )}
-                {includeDecadeAnalysis && decadeChartBase64 && (
-                  <div>
-                    <h4>📅 Decade Analysis Chart</h4>
-                    <div style={styles.selectedTopicChart}>
-                    <img 
-                      src={`data:image/png;base64,${decadeChartBase64}`} 
-                      alt="Decade Analysis Chart" 
-                      style={styles.responsiveChartImage}
-                    />
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p>No topics available.</p>
-            )}
-          </div>
-        </>
-      ) : (
-        <p>Results will appear here after analysis.</p>
-      )}
-      {results && (
-        <div style={styles.exportButtons}>
-          <button 
-            style={styles.exportButton}
-            onClick={handleExportCSV}
+        <div style={styles.headerRow}>
+          <h3 style={styles.sectionHeader}>📊 Analysis Results</h3>
+          <button
+            style={styles.infoButton}
+            onClick={() => setShowExplanation(!showExplanation)}
           >
-            📥 Export Data (CSV)
-          </button>
-          <button 
-            style={styles.exportButton}
-            onClick={handleExportCharts}
-          >
-            🖼️ Export All Charts (ZIP)
+            ℹ
           </button>
         </div>
-      )}
 
+        {showExplanation && explanationContent}
+        {loading ? (
+          <p>Loading analysis...</p>
+        ) : results && results.topics && results.topics.length > 0 ? (
+          <>
+            <div>
+              <h4>Topics:</h4>
+              {topics && topics.length > 0 ? (
+                <div>
+                  <div style={styles.dropdownContainer}>
+                    <label htmlFor="topicDropdown" style={styles.dropdownLabel}>
+                      Select a Topic:
+                    </label>
+                    <select
+                      id="topicDropdown"
+                      value={selectedTopic ? selectedTopic.Topic : ""}
+                      onChange={handleTopicSelect}
+                      style={styles.topicDropdown} // Apply topicDropdown styles here
+                    >
+                      <option value="" style={styles.dropdownOption}>
+                        -- Select a Topic --
+                      </option>
+                      {topics.map((topic, index) => (
+                        <option
+                          key={index}
+                          value={topic.Topic}
+                          style={styles.dropdownOption}
+                        >
+                          {topic.Topic}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedTopic && (
+                    <div>
+                      <h4>{selectedTopic.Topic}</h4>
+                      <p>
+                        <strong>Words:</strong>{" "}
+                        {selectedTopic.Words || "No words available."}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Render Chart for the Selected Topic */}
+                  {chartBase64 && selectedTopic && (
+                    <div style={styles.selectedTopicChart}>
+                      <img
+                        src={`data:image/png;base64,${
+                          chartBase64[selectedTopic.Topic]
+                        }`}
+                        alt={`${selectedTopic.Topic} distribution chart`}
+                        style={styles.responsiveChartImage}
+                      />
+                    </div>
+                  )}
+                  {includeDecadeAnalysis && decadeChartBase64 && (
+                    <div>
+                      <h4>📅 Decade Analysis Chart</h4>
+                      <div style={styles.selectedTopicChart}>
+                        <img
+                          src={`data:image/png;base64,${decadeChartBase64}`}
+                          alt="Decade Analysis Chart"
+                          style={styles.responsiveChartImage}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p>No topics available.</p>
+              )}
+            </div>
+          </>
+        ) : (
+          <p>Results will appear here after analysis.</p>
+        )}
+        {results && (
+          <div style={styles.exportButtons}>
+            <button style={styles.exportButton} onClick={handleExportCSV}>
+              📥 Export Data (CSV)
+            </button>
+            <button style={styles.exportButton} onClick={handleExportCharts}>
+              🖼️ Export All Charts (ZIP)
+            </button>
+          </div>
+        )}
       </div>
       <Footer />
     </div>
-  );  
+  );
 };
 
 // Dark Mode Styles
@@ -580,7 +602,7 @@ const styles = {
     color: "#AAAAAA", // Light grey arrow
     fontSize: "1.2rem",
   },
-  
+
   selectedTopicChart: {
     width: "95%",
     maxWidth: "1000px",
@@ -727,42 +749,42 @@ const styles = {
     fontSize: "0.8em",
   },
   topicSelection: {
-    margin: '20px 0',
+    margin: "20px 0",
   },
   topicDetail: {
-    backgroundColor: '#2A2A2A',
-    padding: '20px',
-    borderRadius: '8px',
-    margin: '20px 0',
+    backgroundColor: "#2A2A2A",
+    padding: "20px",
+    borderRadius: "8px",
+    margin: "20px 0",
   },
   decadeAnalysis: {
-    marginTop: '40px',
-    padding: '20px',
-    backgroundColor: '#2A2A2A',
-    borderRadius: '8px',
+    marginTop: "40px",
+    padding: "20px",
+    backgroundColor: "#2A2A2A",
+    borderRadius: "8px",
   },
   statsContainer: {
-    backgroundColor: '#2A2A2A',
-    padding: '15px',
-    borderRadius: '8px',
-    margin: '20px 0',
+    backgroundColor: "#2A2A2A",
+    padding: "15px",
+    borderRadius: "8px",
+    margin: "20px 0",
   },
   statItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    margin: '8px 0',
-    padding: '8px',
-    backgroundColor: '#333',
-    borderRadius: '4px',
+    display: "flex",
+    justifyContent: "space-between",
+    margin: "8px 0",
+    padding: "8px",
+    backgroundColor: "#333",
+    borderRadius: "4px",
   },
   statLabel: {
-    color: '#E0E0E0',
-    fontWeight: '500',
+    color: "#E0E0E0",
+    fontWeight: "500",
   },
   statValue: {
-    color: '#4CAF50',
-    fontWeight: '600',
-  }
+    color: "#4CAF50",
+    fontWeight: "600",
+  },
 };
 
 export default App;

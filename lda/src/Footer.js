@@ -10,7 +10,7 @@ const Footer = () => {
         <FontAwesomeIcon icon={faCopyright} /> 2024 Kushal Peddakotla <br/>All rights reserved.
       </p>
       <p style={styles.text}>
-        Developed in collaboration with: Dr. Javier Gomez-Lavin and Dr. Bruce Michael Rushing.
+        Developed in collaboration with Dr. Javier Gomez-Lavin and the Purdue VRAI Lab.
       </p>
       <p style={styles.text}>
         <a
