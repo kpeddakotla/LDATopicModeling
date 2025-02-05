@@ -276,17 +276,8 @@ def analyze_task(file, form_data):
         doc_term_matrix = vectorizer.fit_transform(pdf_texts)
         feature_names = vectorizer.get_feature_names_out()
 
-        
-        lda = LDA(
-            n_components=num_topics,
-            max_iter=500,        # Increased iterations for convergence
-            learning_method="online",
-            learning_decay=0.5,  # More aggressive decay for faster convergence
-            batch_size=64,       # Smaller batches for better updates
-            evaluate_every=5,    # Regular evaluation
-            random_state=42,
-            n_jobs=-1
-        )
+        # Train LDA model
+        lda = LDA(n_components=num_topics, random_state=42)
         lda.fit(doc_term_matrix)
 
         if lda.components_.shape[0] == 0:
