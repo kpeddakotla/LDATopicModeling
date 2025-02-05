@@ -16,6 +16,53 @@ const FileUpload = ({ getRootProps, getInputProps, file }) => (
   </div>
 );
 
+const HelpTooltip = ({ text }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  return (
+    <span style={styles.tooltipContainer}>
+      <button 
+        style={styles.tooltipIcon}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onClick={(e) => {
+          e.preventDefault();
+          setShowTooltip(!showTooltip);
+        }}
+      >
+        ?
+      </button>
+      {showTooltip && (
+        <div style={styles.tooltipContent}>
+          {text}
+        </div>
+      )}
+    </span>
+  );
+};
+
+const WelcomeOverlay = ({ onDismiss }) => (
+  <div style={styles.overlay}>
+    <div style={styles.overlayContent}>
+      <h2>Welcome to PDF Topic Explorer! 🚀</h2>
+      <p>Made by Kushal Peddakotla</p>
+      <p>Here's how to get started:</p>
+      <ol style={styles.overlayList}>
+        <li>📁 Upload a ZIP file containing your PDF documents</li>
+        <li>⚙️ Adjust analysis settings using the guidance tooltips</li>
+        <li>🔍 Click "Run Analysis" to discover document themes</li>
+        <li>📈 Explore results and export your findings</li>
+      </ol>
+      <button 
+        style={styles.overlayButton}
+        onClick={onDismiss}
+      >
+        Get Started!
+      </button>
+    </div>
+  </div>
+);
+
 FileUpload.propTypes = {
   getRootProps: PropTypes.func.isRequired,
   getInputProps: PropTypes.func.isRequired,
@@ -27,8 +74,6 @@ const Settings = ({
   setNumTopics,
   numWords,
   setNumWords,
-  stopwords,
-  setStopwords,
 }) => (
   <div style={styles.settingsContainer}>
     {[
@@ -36,24 +81,24 @@ const Settings = ({
         label: "Number of Topics:  ",
         value: numTopics,
         setValue: setNumTopics,
+        help: "Optimal range: 15-20 topics. Start low and increase if themes seem too broad. Max of 45."
       },
       {
         label: "Number of Words per Topic:  ",
         value: numWords,
         setValue: setNumWords,
+        help: "5-10 words typically provide the best balance of specificity and coverage. Max of 45."
       },
-    ].map(({ label, value, setValue }, index) => (
+    ].map(({ label, value, setValue, help }, index) => (
       <div key={index} style={styles.setting}>
         <label>
           {label}
+          <HelpTooltip text={help} />
           <input
             type="number"
             value={value}
             onChange={(e) => {
-              console.debug(`Input change for ${label}: ${e.target.value}`);
-              setValue(
-                Math.min(45, Math.max(0, parseInt(e.target.value, 10) || 0))
-              );
+              setValue(Math.min(45, Math.max(0, parseInt(e.target.value, 10) || 0)));
             }}
             min="0"
             max="45"
@@ -62,23 +107,6 @@ const Settings = ({
         </label>
       </div>
     ))}
-
-    <div style={styles.setting}>
-      <label>
-        <br />
-        Additional Stopwords (comma-separated) 🚫:
-        <input
-          type="text"
-          value={stopwords}
-          onChange={(e) => {
-            console.debug("Stopwords input:", e.target.value); 
-            setStopwords(e.target.value); 
-          }}
-          placeholder="e.g., example, word, stop"
-          style={styles.stopwordsInput}
-        />
-      </label>
-    </div>
   </div>
 );
 
@@ -88,8 +116,6 @@ Settings.propTypes = {
   setNumTopics: PropTypes.func.isRequired,
   numWords: PropTypes.number.isRequired,
   setNumWords: PropTypes.func.isRequired,
-  stopwords: PropTypes.string.isRequired,
-  setStopwords: PropTypes.func.isRequired,
 };
 
 const BibliographySettings = ({
@@ -99,11 +125,15 @@ const BibliographySettings = ({
   setIncludeDecadeAnalysis,
   stopwords,
   setStopwords,
+  numTopPapers,
+  setNumTopPapers
 }) => (
   <div style={styles.bibliographyContainer}>
     <br />
-    <br />
-    <h3 style={styles.sectionHeader}>Additional Settings</h3>
+    <h3 style={styles.sectionHeader}>
+      Analysis Preferences
+      <HelpTooltip text="Fine-tune how we process your documents" />
+    </h3>
     <label style={styles.checkboxLabel}>
       <input
         type="checkbox"
@@ -111,9 +141,10 @@ const BibliographySettings = ({
         onChange={(e) => setIncludeBibliography(e.target.checked)}
         style={styles.checkbox}
       />
-      Consider bibliography in analysis 📚
+      Include bibliography sections 📚
+      <HelpTooltip text="Recommended for academic papers. Skips common bibliography patterns." />
     </label>
-    <br></br>
+    <br />
     <label style={styles.checkboxLabel}>
       <input
         type="checkbox"
@@ -121,10 +152,41 @@ const BibliographySettings = ({
         onChange={(e) => setIncludeDecadeAnalysis(e.target.checked)}
         style={styles.checkbox}
       />
-      Consider decade analysis in results 🕰️
+      Enable temporal analysis 🕰️
+      <HelpTooltip text="Requires year in filenames (e.g., 'paper-2015.pdf'). Shows trends over time." />
     </label>
     <br />
-    <br />
+    <div style={styles.setting}>
+      <label>
+        <br />
+        Additional Stopwords (comma-separated) 🚫:
+        <HelpTooltip text="Add domain-specific terms you want to exclude (e.g., 'participant', 'methodology')" />
+        <input
+          type="text"
+          value={stopwords}
+          onChange={(e) => setStopwords(e.target.value)}
+          placeholder="e.g., example, word, stop"
+          style={styles.stopwordsInput}
+        />
+      </label>
+    </div>
+    <br></br>
+    <div style={styles.setting}>
+      <label>
+        Number of Top Papers per Topic:
+        <HelpTooltip text="Shows the top papers that contribute to shaping a topic understanding." />
+        <input
+          type="number"
+          value={numTopPapers}
+          onChange={(e) => setNumTopPapers(Math.max(1, parseInt(e.target.value, 10) || 5))}
+          min="1"
+          max="20"
+          style={styles.input}
+          
+        />
+      </label>
+    </div>
+    <br></br>
   </div>
 );
 
@@ -133,11 +195,14 @@ BibliographySettings.propTypes = {
   setIncludeBibliography: PropTypes.func.isRequired,
   includeDecadeAnalysis: PropTypes.bool.isRequired,
   setIncludeDecadeAnalysis: PropTypes.func.isRequired,
+  stopwords: PropTypes.string.isRequired,
+  setStopwords: PropTypes.func.isRequired,
 };
 
 const App = () => {
   const [numTopics, setNumTopics] = useState(5);
   const [numWords, setNumWords] = useState(10); 
+  const [numTopPapers, setNumTopPapers] = useState(5);  // Default to 5
   const [file, setFile] = useState(null); 
   const [results, setResults] = useState(null); 
   const [chartBase64, setChartBase64] = useState({});
@@ -148,6 +213,7 @@ const App = () => {
   const [loading, setLoading] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState("");
   const [topics, setTopics] = useState([]);
+  const [showWelcome, setShowWelcome] = useState(true);
   const [showExplanation, setShowExplanation] = useState(false);
   const handleTopicSelect = (event) => {
     const selectedTopicId = event.target.value;
@@ -239,6 +305,27 @@ const App = () => {
           </li>
         </ul>
       </div>
+      <br></br>
+      <br></br>
+      <div style={styles.explanationContent}>
+      <p style={styles.explanationText}>
+        <strong>Current Model Configuration:</strong>
+      </p>
+      <ul style={styles.explanationList}>
+        <li>
+          🧮 Vectorization Parameters:
+          <ul>
+            <li>max_df: {results?.vectorizer_params?.max_df || 0.95}</li>
+            <li>min_df: {results?.vectorizer_params?.min_df || 1}</li>
+            <li>Stopwords: {results?.vectorizer_params?.stopwords_count || 'Custom Set'}</li>
+          </ul>
+        </li>
+        <li>
+          📉 Model Loss (NLL): {results?.model_loss?.toFixed(2) || 'N/A'}
+          <br/><em>(Negative Log Likelihood, lower = better)</em>
+        </li>
+      </ul>
+    </div>
     </div>
   );
 
@@ -312,29 +399,60 @@ const App = () => {
     }
   };
 
-  const handleExportCSV = () => {
-    // Create CSV content
-    const csvContent = [
-      "Topic ID,Topic Name,Top Words,Word Scores",
-      ...results.topics.map(
-        (topic) =>
-          `"${topic.Topic}","${topic.Topic}",` +
-          `"${topic.Words}","${topic.WordScores.percentages.join(", ")}"`
-      ),
-    ].join("\n");
+  
+const handleExportCSV = () => {
+  if (!results?.topics || !results?.top_papers) {
+    alert("No results to export!");
+    return;
+  }
 
-    // Create download
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "topic_analysis.csv";
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
+  const csvRows = [];
+  // CSV headers
+  csvRows.push([
+    "Topic ID",
+    "Topic Name",
+    "Top Words",
+    "Paper Title",
+    "Authors",
+    "Year",
+    "Loading Factor",
+    "PubMed ID",
+    "Raw Score"
+  ].join(','));
+
+  // Add data rows
+  results.topics.forEach((topic, topicIdx) => {
+    const papers = results.top_papers[topicIdx];
+    papers.forEach((paper) => {
+      const row = [
+        topicIdx + 1,
+        `"${topic.Topic}"`,
+        `"${topic.Words}"`,
+        `"${paper.title.replace(/"/g, '""')}"`,
+        `"${paper.author.replace(/"/g, '""')}"`,
+        paper.year,
+        paper.loading_factor.toFixed(4),
+        paper.pubmed_id || 'N/A',
+        paper.raw_score.toFixed(4)
+      ].join(',');
+      csvRows.push(row);
+    });
+  });
+
+  // Create download
+  const csvContent = csvRows.join('\n');
+  const blob = new Blob([csvContent], { type: "text/csv" });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "topic_analysis_full.csv";
+  a.click();
+  window.URL.revokeObjectURL(url);
+};
 
   return (
     <div style={styles.container}>
+      {showWelcome && <WelcomeOverlay onDismiss={() => setShowWelcome(false)} />}
       <h1 style={styles.header}>📚 PDF Topic Analysis</h1>
       <FileUpload
         getRootProps={getRootProps}
@@ -346,14 +464,16 @@ const App = () => {
         setNumTopics={setNumTopics}
         numWords={numWords}
         setNumWords={setNumWords}
-        stopwords={stopwords}
-        setStopwords={setStopwords}
       />
       <BibliographySettings
         includeBibliography={includeBibliography}
         setIncludeBibliography={setIncludeBibliography}
         includeDecadeAnalysis={includeDecadeAnalysis}
         setIncludeDecadeAnalysis={setIncludeDecadeAnalysis}
+        stopwords={stopwords}
+        setStopwords={setStopwords}
+        numTopPapers={numTopPapers}
+        setNumTopPapers={setNumTopPapers}
       />
       <button onClick={handleAnalyze} style={styles.button} disabled={loading}>
         {loading ? "Analyzing..." : "🔍 Run Analysis"}
@@ -411,7 +531,50 @@ const App = () => {
                       </p>
                     </div>
                   )}
-
+                  {selectedTopic && results?.top_papers && (
+                    <div style={styles.topPapersContainer}>
+                      <h4>Top Papers for {selectedTopic.Topic}</h4>
+                      <div style={styles.papersList}>
+                        {results.top_papers[selectedTopic.Topic.split(" ")[1] - 1].map((paper, index) => (
+                          <div key={index} style={styles.paperItem}>
+                            <div style={styles.paperInfo}>
+                              <div style={styles.paperTitle}>{paper.title}</div>
+                              <div style={styles.paperDetails}>
+                                <span style={styles.paperAuthor}>{paper.author}</span>
+                                <span style={styles.paperYear}>{paper.year}</span>
+                                {/* Always show PubMed link if ID exists */}
+                                {paper.pubmed_id ? (
+                                  <a
+                                    href={`https://pubmed.ncbi.nlm.nih.gov/${paper.pubmed_id}/`}
+                                    style={styles.pubmedLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Open in PubMed"
+                                  >
+                                    PubMed
+                                  </a>
+                                ) : (
+                                  <span style={styles.pubmedLink}>No PubMed ID</span>
+                                )}
+                              </div>
+                            </div>
+                            <div style={styles.loadingBarContainer}>
+                              <div
+                                style={{
+                                  ...styles.loadingBar,
+                                  width: `${paper.loading_factor * 100}%`,
+                                }}
+                              >
+                                <span style={styles.loadingValue}>
+                                  {(paper.loading_factor * 100).toFixed(1)}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {/* Render Chart for the Selected Topic */}
                   {chartBase64 && selectedTopic && (
                     <div style={styles.selectedTopicChart}>
@@ -694,6 +857,27 @@ const styles = {
     border: "1px solid #dee2e6",
     fontSize: "0.9rem",
   },
+  topPapersContainer: {
+    marginTop: '20px',
+    padding: '15px',
+    backgroundColor: '#2A2A2A',
+    borderRadius: '8px',
+  },
+  topPapersTable: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    marginTop: '10px',
+  },
+  topPapersTableTh: {
+    backgroundColor: '#4CAF50',
+    color: 'white',
+    padding: '10px',
+    textAlign: 'left',
+  },
+  topPapersTableTd: {
+    padding: '10px',
+    borderBottom: '1px solid #444',
+  },
   explanationContent: {
     marginRight: "20px",
   },
@@ -784,6 +968,139 @@ const styles = {
   statValue: {
     color: "#4CAF50",
     fontWeight: "600",
+  },
+  tooltipContainer: {
+    position: 'relative',
+    display: 'inline-block',
+    marginLeft: '8px',
+  },
+  tooltipIcon: {
+    background: '#6200EE',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50%',
+    width: '20px',
+    height: '20px',
+    cursor: 'help',
+    fontSize: '14px',
+    lineHeight: '20px',
+    textAlign: 'center',
+    verticalAlign: 'middle',
+    marginRight: '20px',
+    marginLeft: '0px',
+    marginBottom: '5px',
+  },
+  tooltipContent: {
+    position: 'absolute',
+    bottom: '100%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: '#2A2A2A',
+    color: '#E0E0E0',
+    padding: '10px',
+    borderRadius: '6px',
+    width: '250px',
+    fontSize: '0.9rem',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+    zIndex: 1000,
+  },
+  overlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    zIndex: 2000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overlayContent: {
+    backgroundColor: '#1F1F1F',
+    padding: '2rem',
+    borderRadius: '12px',
+    maxWidth: '600px',
+    textAlign: 'center',
+  },
+  overlayList: {
+    textAlign: 'left',
+    margin: '1.5rem 0',
+    lineHeight: '1.6',
+    paddingLeft: '1.5rem',
+  },
+  overlayButton: {
+    backgroundColor: '#6200EE',
+    color: 'white',
+    padding: '12px 24px',
+    fontSize: '1.1rem',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    transition: 'background-color 0.3s',
+  },
+  papersList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+  },
+  paperItem: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '5px',
+    padding: '10px',
+    backgroundColor: '#1F1F1F',
+    borderRadius: '6px',
+  },
+  paperInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  paperTitle: {
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    color: '#E0E0E0',
+  },
+  paperDetails: {
+    display: 'flex',
+    gap: '10px',
+    fontSize: '0.85rem',
+    color: '#888',
+  },
+  loadingBarContainer: {
+    width: '100%',
+    height: '20px',
+    backgroundColor: '#333',
+    borderRadius: '10px',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  loadingBar: {
+    height: '100%',
+    backgroundColor: '#6200EE',
+    borderRadius: '10px',
+    transition: 'width 0.3s ease',
+  },
+  loadingValue: {
+    position: 'absolute',
+    right: '8px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    fontSize: '0.8rem',
+    color: '#FFF',
+  },
+  pubmedLink: {
+    color: "#4CAF50",
+    textDecoration: "none",
+    marginLeft: "8px",
+    fontSize: "0.8rem",
+    border: "1px solid #4CAF50",
+    borderRadius: "4px",
+    padding: "2px 6px",
+    "&:hover": {
+      backgroundColor: "#4CAF5020",
+    },
   },
 };
 

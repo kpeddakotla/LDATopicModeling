@@ -60,7 +60,12 @@ Follow these steps to set up the application on your local machine:
    ```bash
    npm install
    ```
-4. Run the server:
+4. Install requirements:
+   ```bash
+   pip install -r requirements.txt
+   python -c "import nltk; nltk.download('stopwords'); nltk.download('wordnet')"
+   ```
+5. Run the server:
    ```bash
    npm start --no-reload
    ```

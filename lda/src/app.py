@@ -2,11 +2,14 @@ import os
 import zipfile
 import shutil
 import tempfile
-import threading
+import re
 import queue
 import base64
 from io import BytesIO
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation as LDA
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
 from sklearn.feature_extraction.text import CountVectorizer
 from nltk.corpus import stopwords
 import nltk
@@ -17,6 +20,8 @@ from PyPDF2 import PdfReader
 import logging
 import numpy as np
 import matplotlib
+from Bio import Entrez
+import time
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -41,17 +46,70 @@ logger = logging.getLogger(__name__)
 logging.getLogger("PIL").setLevel(logging.INFO)
 
 
+nltk.download("wordnet")
 nltk.download("stopwords")
 logging.getLogger("PyPDF2").setLevel(logging.ERROR)
+lemmatizer = WordNetLemmatizer()
 
+def preprocess_text(text):
+    """
+    Clean and preprocess text:
+    - Remove special characters, numbers, and extra spaces
+    - Convert to lowercase
+    - Lemmatize words
+    - Remove stopwords
+    """
+    # Remove non-alphabetic characters and extra spaces
+    text = re.sub(r"[^a-zA-Z\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text.lower()
 
-def extract_year_from_title(file_name):
-    match = re.search(r"- (\d{4}) -", file_name)
-    if match:
-        return int(match.group(1))
-    else:
+    # Tokenize and lemmatize
+    tokens = text.split()
+    tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stopwords.words("english")]
+    return " ".join(tokens)
+
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    try:
+        with open(pdf_path, "rb") as file:
+            reader = PdfReader(file)
+            if reader.is_encrypted:
+                try:
+                    reader.decrypt("")
+                except Exception as e:
+                    logger.warning(f"Skipping encrypted file {pdf_path}: {str(e)}")
+                    return ""
+
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                text += preprocess_text(page_text)  # Preprocess each page's text
+    except Exception as e:
+        logger.error(f"Error processing {pdf_path}: {str(e)}")
+        return ""
+    return text
+
+def get_pubmed_id(title, author, year, retmax=3):
+    """Search PubMed and return best matching ID"""
+    Entrez.email = "your.email@example.com"  # Required by NCBI
+    query = f'({title}[Title]) AND ({author}[Author]) AND {year}[Date - Publication]'
+    
+    try:
+        handle = Entrez.esearch(db="pubmed", term=query, retmax=retmax)
+        record = Entrez.read(handle)
+        handle.close()
+        
+        if record["IdList"]:
+            return record["IdList"][0]  # Return first match
+        return None
+    except Exception as e:
+        print(f"PubMed search failed: {str(e)}")
         return None
 
+# Add 0.5s delay between requests to comply with NCBI guidelines
+def safe_pubmed_lookup(*args):
+    time.sleep(0.5)
+    return get_pubmed_id(*args)
 
 def find_cutoff_position(text):
     pattern = r"\b(acknowledgments|works cited|notes|references)\b"
@@ -75,28 +133,6 @@ def clean_pdf_text(text):
         return text[:cutoff_pos]
     else:
         return text
-
-
-def extract_text_from_pdf(pdf_path):
-    text = ""
-    try:
-        with open(pdf_path, "rb") as file:
-            reader = PdfReader(file)
-
-            if reader.is_encrypted:
-                try:
-                    reader.decrypt("")
-                except Exception as e:
-                    logger.warning(f"Skipping encrypted file {pdf_path}: {str(e)}")
-                    return ""
-
-            for page in reader.pages:
-                text += page.extract_text() or ""
-    except Exception as e:
-        logger.error(f"Error processing {pdf_path}: {str(e)}")
-        return ""
-    return text
-
 
 def generate_decade_chart(decade_topic_distribution, lda):
     plt.ioff()
@@ -138,20 +174,45 @@ def group_by_decades(years, doc_topic_matrix):
 
     return decade_topic_distribution
 
-
-def get_top_papers(doc_topic_matrix, topic_idx, titles, years, n=5):
-    topic_scores = doc_topic_matrix[:, topic_idx]
-    top_indices = np.argsort(topic_scores)[::-1][:n]
-    return [
-        {
-            "title": titles[i],
-            "year": years[i] or "Unknown",
-            "score": float(topic_scores[i]),
-            "score_pct": f"{topic_scores[i] * 100:.1f}%",
-        }
-        for i in top_indices
-    ]
-
+def get_top_papers(doc_topic_matrix, titles, years, authors, n=5):
+    """
+    Get top papers with proper scaling and PubMed IDs.
+    Uses percentile-based loading factors.
+    """
+    top_papers = {}
+    
+    for topic_idx in range(doc_topic_matrix.shape[1]):
+        topic_scores = doc_topic_matrix[:, topic_idx]
+        
+        # Calculate percentiles for nuanced scaling
+        percentiles = np.percentile(topic_scores, [10, 90])
+        scaled_scores = np.clip((topic_scores - percentiles[0]) / 
+                               (percentiles[1] - percentiles[0]), 0, 1)
+        
+        # Get top papers
+        top_indices = topic_scores.argsort()[::-1][:n]
+        
+        topic_papers = []
+        for i in top_indices:
+            # Get PubMed ID
+            pubmed_id = safe_pubmed_lookup(
+                titles[i], 
+                authors[i].split("et al.")[0].strip(),  # First author
+                years[i]
+            )
+            
+            topic_papers.append({
+                "title": titles[i],
+                "year": years[i],
+                "author": authors[i],
+                "loading_factor": float(scaled_scores[i]),
+                "pubmed_id": pubmed_id,
+                "raw_score": float(topic_scores[i])  # For debugging
+            })
+        
+        top_papers[topic_idx] = topic_papers
+    
+    return top_papers
 
 def analyze_task(file, form_data):
     zip_path = None
@@ -176,6 +237,8 @@ def analyze_task(file, form_data):
             zip_ref.extractall(extracted_path)
 
         pdf_texts = []
+        authors = []
+        years = []
         titles = []
         years = []
         pdf_count = 0
@@ -193,17 +256,37 @@ def analyze_task(file, form_data):
 
                     cleaned_text = clean_pdf_text(text) if skip_bibliography else text
                     pdf_texts.append(cleaned_text)
-                    titles.append(file_name)
-                    years.append(extract_year_from_title(file_name))
+                    author, year, title = extract_metadata(file_name)
+                    authors.append(author)
+                    years.append(year)
+                    titles.append(title)
                     pdf_count += 1
         if not pdf_texts:
             return {"error": "No valid text extracted from PDFs."}
-
-        vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words=all_stopwords)
+        vectorizer_params = {
+                "max_df": 0.95,
+                "min_df": 1,
+                "stopwords_count": len(all_stopwords)
+            }
+        vectorizer = TfidfVectorizer(
+            max_df=0.95,  # Reduced from 0.95 to exclude more common terms
+            min_df=1,     # Increased from 1 to ignore rare terms
+            stop_words=all_stopwords,
+        )
         doc_term_matrix = vectorizer.fit_transform(pdf_texts)
         feature_names = vectorizer.get_feature_names_out()
 
-        lda = LDA(n_components=num_topics, random_state=42)
+        
+        lda = LDA(
+            n_components=num_topics,
+            max_iter=500,        # Increased iterations for convergence
+            learning_method="online",
+            learning_decay=0.5,  # More aggressive decay for faster convergence
+            batch_size=64,       # Smaller batches for better updates
+            evaluate_every=5,    # Regular evaluation
+            random_state=42,
+            n_jobs=-1
+        )
         lda.fit(doc_term_matrix)
 
         if lda.components_.shape[0] == 0:
@@ -212,23 +295,18 @@ def analyze_task(file, form_data):
         logger.debug(f"Trained LDA model with {lda.n_components} topics")
         components = lda.components_
         doc_topic_matrix = lda.transform(doc_term_matrix)
-
+   
         topic_charts = {}
         topics = []
 
         for topic_idx in range(num_topics):
-
             top_indices = components[topic_idx].argsort()[-num_words:][::-1]
             top_words = [feature_names[i] for i in top_indices]
             raw_weights = components[topic_idx][top_indices]
             EPSILON = 1e-12 
             marginal_word_prob = (lda.components_.sum(axis=0) + EPSILON) / (lda.components_.sum() + EPSILON)
             lift_scores = (lda.components_ + EPSILON) / (marginal_word_prob + EPSILON)
-
-            # Calculate average lift per topic
             average_lift_per_topic = np.mean(lift_scores, axis=1).tolist()
-    
-
             total_weight = raw_weights.sum()
             percentages = (raw_weights / total_weight * 100).round(2)
 
@@ -251,20 +329,20 @@ def analyze_task(file, form_data):
             ).decode("utf-8")
             plt.close()
 
-            topics.append(
-                {
-                    "Topic": f"Topic {topic_idx + 1}",
-                    "Words": ", ".join(top_words),
-                    "WordScores": {
-                        "raw": raw_weights.tolist(),
-                        "percentages": percentages.tolist(),
-                    },
+            topics.append({
+                "Topic": f"Topic {topic_idx + 1}",
+                "Words": ", ".join(top_words),
+                "WordScores": {
+                    "raw": raw_weights.tolist(),
+                    "percentages": (raw_weights / raw_weights.sum() * 100).round(2).tolist()
                 }
-            )
-
+            })
+            
+        num_top_papers = int(form_data.get("numTopPapers", 5))  # Default to 5
+        top_papers = get_top_papers(doc_topic_matrix, titles, years, authors, num_top_papers)
         valid_years = [y for y in years if y is not None]
         time_period = f"{min(valid_years)}-{max(valid_years)}" if valid_years else "N/A"
-
+        model_loss = -lda.score(doc_term_matrix)
         return {
             "topics": topics,
             "topic_charts": topic_charts,
@@ -278,7 +356,12 @@ def analyze_task(file, form_data):
             "titles": titles,
             "years": years,
             "time_period": time_period,
-            "average_lift_per_topic": average_lift_per_topic
+            "average_lift_per_topic": average_lift_per_topic, 
+            "model_loss": model_loss,
+            "vectorizer_params": vectorizer_params,
+            "perplexity": lda.perplexity(doc_term_matrix),
+            "top_papers": top_papers,
+            "num_top_papers": num_top_papers,
         }
 
     except Exception as e:
@@ -330,8 +413,11 @@ def analyze():
                 "num_pdfs": result["num_pdfs"], 
                 "num_topics": result["num_topics"], 
                 "time_period": result["time_period"],
+                "model_loss": result["model_loss"], 
                 "average_lift_per_topic": result["average_lift_per_topic"],
                 "cache_id": int(time.time()),
+                "top_papers": result["top_papers"],
+                "num_top_papers": result["num_top_papers"],
             }
         )
 
@@ -342,6 +428,20 @@ def analyze():
         plt.close("all")
         gc.collect()
 
+
+def extract_metadata(filename):
+    """
+    Extract author, year, and title from filename format:
+    "Author et al. - Year - Title.pdf"
+    """
+    pattern = r"^(.*?) - (\d{4}) - (.*?)\.pdf$"
+    match = re.match(pattern, filename)
+    if match:
+        author = match.group(1).strip()
+        year = int(match.group(2))
+        title = match.group(3).strip()
+        return author, year, title
+    return None, None, None
 
 def generate_topic_distribution_charts(lda_model, feature_names, num_words=10):
     topic_charts = {}
